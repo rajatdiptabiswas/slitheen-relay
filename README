@@ -1,0 +1,12 @@
+To install:
+
+open slitheen-proxy.c and change the MAC address to your client machine
+make openssl
+copy library and include directories into makefile
+make
+
+To generate keys:
+Make and run genkeys from telex-tag-v3
+
+To run:
+./slitheen-proxy [interface to client] [interface to world]
