@@ -23,8 +23,11 @@
 #define TLS_CLNT_KEYEX 0x10
 #define TLS_FINISHED 0x14
 
+struct client_st;
+typedef struct client_st client;
+
 typedef struct stream_st {
-	uint8_t stream_id;
+	uint16_t stream_id;
 	int32_t pipefd;
 	struct stream_st *next;
 } stream;
@@ -53,7 +56,7 @@ typedef struct queue_block_st{
 	int32_t offset;
 	uint8_t *data;
 	struct queue_block_st *next;
-	uint8_t stream_id;
+	uint16_t stream_id;
 } queue_block;
 
 typedef struct data_queue_st {
@@ -93,6 +96,7 @@ typedef struct flow_st {
 	int resume_session;
 	stream_table *streams;
 	data_queue *downstream_queue;
+	client *client_ptr;
 
 	packet_chain *ds_packet_chain;
 	packet_chain *us_packet_chain;

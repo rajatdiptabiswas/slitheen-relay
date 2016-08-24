@@ -7,7 +7,7 @@
 struct proxy_thread_data {
 	uint8_t *initial_data;
 	uint16_t initial_len;
-	uint8_t stream_id;
+	uint16_t stream_id;
 	int32_t pipefd;
 	stream_table *streams;
 	data_queue *downstream_queue;
@@ -17,6 +17,7 @@ typedef struct client_st {
 	uint8_t slitheen_id[SLITHEEN_ID_LEN];
 	stream_table *streams;
 	data_queue *downstream_queue;
+	uint16_t encryption_counter;
 	struct client_st *next;
 } client;
 
@@ -34,7 +35,7 @@ struct socks_req {
 };
 
 struct __attribute__((__packed__)) sl_up_hdr {
-	uint8_t stream_id;
+	uint16_t stream_id;
 	uint16_t len;
 };
 

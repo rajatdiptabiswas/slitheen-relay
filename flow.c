@@ -1,6 +1,21 @@
-/* flow.c by Cecylia Bocovich <cbocovic@uwaterloo.ca>*/
-
-/* Defines and modifies the flow structure. */
+/* Name: flow.c
+ * Author: Cecylia Bocovich <cbocovic@uwaterloo.ca>
+ *
+ * This file contains functions for manipulating tagged flows. 
+ *
+ * The check_flow function checks to see whether the packet that is currently
+ * being processed belongs to a tagged flow.
+ *
+ * The add_packet function attempts to reconstruct a TLS record containing
+ * handshake data from the contents of previously received packets
+ *
+ * The update_flow function processes TLS handshake messages and calls the
+ * necessary functions from crypto.c when a message has been received.
+ *
+ * There are several functions associated with the resumption of previously
+ * tagged TLS sessions.
+ *
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -510,13 +525,6 @@ int remove_flow(flow *f) {
 	return 1;
 }
 
-/** Expands the flow table when we run out of space
- *  TODO: implement and test
- */
-int grow_table() {
-	return 0;
-}
-
 /** Returns the index of a flow in the flow table if
  *  it exists, returns 0 if it is not present.
  *
@@ -839,7 +847,7 @@ int save_session_ticket(flow *f, uint8_t *hs, uint32_t len){
 #endif
 	uint8_t *p = hs + HANDSHAKE_HEADER_LEN;
 	p += 4; //skip lifetime TODO: add to session struct
-	session *new_session = emalloc(sizeof(session));
+	session *new_session = ecalloc(1, sizeof(session));
 
 	new_session->session_id_len = 0;
 	
@@ -893,7 +901,6 @@ int save_session_ticket(flow *f, uint8_t *hs, uint32_t len){
 
 /* Adds a packet the flow's packet chain. If it can complete a record, gives
  * this record to update_flow */
-//TODO: check all returns and figure out what to do if there is a mem failure
 int add_packet(flow *f, struct packet_info *info){
 	if (info->tcp_hdr == NULL || info->app_data_len <= 0){
 		return 0;

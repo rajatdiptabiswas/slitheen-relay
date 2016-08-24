@@ -1,3 +1,10 @@
+/* Name: cryptothread.c
+ * Author: Cecylia Bocovich <cbocovic@uwaterloo.ca>
+ *
+ * This function contains the code necessary for using OpenSSL in a thread-safe
+ * manner.
+ */
+
 
 #include <pthread.h>
 #include <openssl/crypto.h>

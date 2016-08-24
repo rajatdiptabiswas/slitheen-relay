@@ -1,7 +1,13 @@
-/* relay.c by Cecylia Bocovich <cbocovic@uwaterloo.ca>
+/* Name: relay.c
+ * Author: Cecylia Bocovich <cbocovic@uwaterloo.ca>
  *
- * Once a flow has been tagged, this code will extract covert data from the header
+ * This file contains code that the relay station runs once the TLS handshake for
+ * a tagged flow has been completed.
+ *
+ * These functions will extract covert data from the header
  * of HTTP GET requests and insert downstream data into leaf resources
+ *
+ * It is also responsible for keeping track of the HTTP state of the flow
  */
 
 #include <stdio.h>
@@ -18,6 +24,7 @@
 
 #include <openssl/bio.h>
 #include <openssl/evp.h>
+#include <openssl/rand.h>
 
 #include "relay.h"
 #include "slitheen.h"
@@ -76,7 +83,7 @@ int replace_packet(flow *f, struct packet_info *info){
 		//}//TODO: need to do something about replaying packets (maybe store previously sent data??
 
 
-#ifdef DEBUG2 //TODO: fix
+#ifdef DEBUG2
 		uint8_t *p = (uint8_t *) info->tcp_hdr;
 		fprintf(stdout, "ip hdr length: %d\n", htons(info->ip_hdr->len));
 		fprintf(stdout, "Injecting the following packet:\n");
@@ -255,7 +262,7 @@ int read_header(flow *f, struct packet_info *info){
 	}
 	
 	int32_t num_messages = 1;
-	char *messages[50]; //TODO:make not just 10?
+	char *messages[50]; //TODO: grow this array
 	messages[0] = header_ptr;
 	char *c = header_ptr;
 	while(*c != '\r' && *c != '\0'){
@@ -351,6 +358,7 @@ int read_header(flow *f, struct packet_info *info){
 				new_client->downstream_queue = emalloc(sizeof(data_queue));
 
 				new_client->downstream_queue->first_block = NULL;
+				new_client->encryption_counter = 0;
 	
 				new_client->next = NULL;
 
@@ -366,6 +374,7 @@ int read_header(flow *f, struct packet_info *info){
 				}
 				
 				//set f's stream table
+				f->client_ptr = new_client; //TODO: slim down f 
 				f->streams = new_client->streams;
 				f->downstream_queue = new_client->downstream_queue;
 
@@ -377,7 +386,7 @@ int read_header(flow *f, struct packet_info *info){
 
 		while(output_len > 0){
 			struct sl_up_hdr *sl_hdr = (struct sl_up_hdr *) p;
-			uint8_t stream_id = sl_hdr->stream_id;
+			uint16_t stream_id = sl_hdr->stream_id;
 			uint16_t stream_len = ntohs(sl_hdr->len);
 
 			p += sizeof(struct sl_up_hdr);
@@ -441,7 +450,6 @@ int read_header(flow *f, struct packet_info *info){
 					return 1;
 				}
 				uint8_t *initial_data = emalloc(stream_len);
-				//TODO: ended here. create macro that just exits
 				memcpy(initial_data, p, stream_len);
 
 				struct proxy_thread_data *thread_data = 
@@ -514,7 +522,7 @@ void *proxy_covert_site(void *data){
 
 	uint8_t *p = thread_data->initial_data;
 	uint16_t data_len = thread_data->initial_len;
-	uint8_t stream_id = thread_data->stream_id;
+	uint16_t stream_id = thread_data->stream_id;
 
 	int32_t bytes_sent;
 
@@ -562,7 +570,7 @@ void *proxy_covert_site(void *data){
 		break;
 	case 0x04:
 		//IPv6
-		goto err;//TODO: fix this
+		goto err;//TODO: add IPv6 functionality
 		break;
 	}
 
@@ -591,7 +599,7 @@ void *proxy_covert_site(void *data){
 	uint8_t *response = emalloc(11);
 	//now send the reply to the client
 	response[0] = 0x05;
-	response[1] = 0x00;//TODO: make this accurate
+	response[1] = 0x00;
 	response[2] = 0x00;
 	response[3] = 0x01;
 	*((uint32_t *) (response + 4)) = my_addr.sin_addr.s_addr;
@@ -680,8 +688,6 @@ void *proxy_covert_site(void *data){
 				if( bytes_sent <= 0){
 					break;
 				} else if (bytes_sent < bytes_read){
-					//TODO: should update buffer and keep
-					//track of length of upstream data
 					break;
 				}
 			} else {
@@ -1207,9 +1213,12 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 	struct slitheen_header *sl_hdr;
 
 	data_queue *downstream_queue = f->downstream_queue;
+	client *client_ptr = f->client_ptr;
 
 	//Fill as much as we can from the censored_queue
-	while((remaining > SLITHEEN_HEADER_LEN) && downstream_queue != NULL && downstream_queue->first_block != NULL){
+	//Note: need enough for the header and one block of data (16 byte IV, 16 byte
+	//		block, 16 byte MAC) = header_len + 48.
+	while((remaining > (SLITHEEN_HEADER_LEN + 48)) && downstream_queue != NULL && downstream_queue->first_block != NULL){
 		queue_block *first_block = downstream_queue->first_block;
 		int32_t block_length = first_block->len;
 		int32_t offset = first_block->offset;
@@ -1221,9 +1230,10 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 #endif
 		
 		sl_hdr = (struct slitheen_header *) p;
+		sl_hdr->counter = ++(client_ptr->encryption_counter);
 		sl_hdr->stream_id = first_block->stream_id;
-		sl_hdr->len = 0x00;
-		sl_hdr->garbage = 0x00;
+		sl_hdr->len = 0x0000;
+		sl_hdr->garbage = 0x0000;
 		p += SLITHEEN_HEADER_LEN;
 		remaining -= SLITHEEN_HEADER_LEN;
 
@@ -1248,7 +1258,7 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 		}
 		sl_hdr->len = htons(sl_hdr->len);
 
-#ifdef DEBUG
+//#ifdef DEBUG
 		printf("DWNSTRM: slitheen header: ");
 		for(int i=0; i< SLITHEEN_HEADER_LEN; i++){
 			printf("%02x ",((uint8_t *) sl_hdr)[i]);
@@ -1259,28 +1269,34 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 			printf("%02x ", ((uint8_t *) sl_hdr)[i+SLITHEEN_HEADER_LEN]);
 		}
 		printf("\n");
-#endif
+//#endif
 	}
 	//now, if we need more data, fill with garbage
-	if(remaining > SLITHEEN_HEADER_LEN ){
-		//TODO: note, we may also be receiving misordered packets. Take Ian's suggestion into account here
+	if(remaining >= SLITHEEN_HEADER_LEN ){
+
 		sl_hdr = (struct slitheen_header *) p;
+		sl_hdr->counter = 0x00;
 		sl_hdr->stream_id = 0x00;
 		remaining -= SLITHEEN_HEADER_LEN;
 		sl_hdr->len = htons(remaining);
-		sl_hdr->garbage = htons(remaining);
+		sl_hdr->garbage = htons(remaining);//TODO: change this to a bit
 
-#ifdef DEBUG
+//#ifdef DEBUG
 		printf("DWNSTRM: slitheen header: ");
 		for(int i=0; i< SLITHEEN_HEADER_LEN; i++){
 			printf("%02x ", p[i]);
 		}
 		printf("\n");
-#endif
+//#endif
 
 		p += SLITHEEN_HEADER_LEN;
-		memset(p, 'A', remaining);
+		RAND_bytes(p, remaining);
+	} else {
+		//fill with random data
+		printf("Less than 16 bytes remaining, had to fill with random\n");
+		RAND_bytes(p, remaining);
 	}
+
 	return 0;
 }
 

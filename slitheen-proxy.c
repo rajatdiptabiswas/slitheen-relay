@@ -1,4 +1,10 @@
-/* slitheen-proxy.c by Cecylia Bocovich */
+/* Name: slitheen-proxy.c 
+ * Author: Cecylia Bocovich
+ *
+ * This code runs the main functions for the Slitheen relay station to tap and
+ * modify data.
+ *
+ */
 
 #include <pcap.h>
 #include <stdio.h>

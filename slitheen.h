@@ -75,11 +75,13 @@ struct packet_info {
 };
 
 struct __attribute__((__packed__)) slitheen_header {
-	u_char stream_id; /* determines which stream the data is from */
-	u_short len;
-	u_short garbage;
+	uint64_t counter;
+	uint16_t stream_id; /* determines which stream the data is from */
+	uint16_t len;
+	uint32_t garbage;
 };
-#define SLITHEEN_HEADER_LEN 5
+
+#define SLITHEEN_HEADER_LEN 16
 
 struct __attribute__((__packed__)) record_header {
 	u_char type;

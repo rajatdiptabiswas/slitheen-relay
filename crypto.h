@@ -2,6 +2,7 @@
 #define _CRYPTO_H_
 
 #include "flow.h"
+#include "ptwist.h"
 
 #define n2s(c,s)        ((s=(((unsigned int)(c[0]))<< 8)| \
 							(((unsigned int)(c[1]))    )),c+=2)
@@ -27,6 +28,9 @@ int init_ciphers(flow *f);
 void update_context(flow *f, uint8_t *input, int32_t len, int32_t incoming, int32_t type, int32_t enc);
 void check_handshake(struct packet_info *info);
 
+int check_tag(byte key[16], const byte privkey[PTWIST_BYTES],
+	const byte tag[PTWIST_TAG_BYTES], const byte *context,
+	size_t context_len);
 #define PRE_MASTER_MAX_LEN BUFSIZ
 
 #define SLITHEEN_KEYGEN_CONST "SLITHEEN_KEYGEN"

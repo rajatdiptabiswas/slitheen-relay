@@ -1,3 +1,11 @@
+/* Name: util.c
+ * Author: Cecylia Bocovich <cbocovic@uwaterloo.ca>
+ *
+ * This file contains helper functions and macros
+ */
+
+
+
 #include <stdio.h>
 #include <stdlib.h>
 #include "util.h"
