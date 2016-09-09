@@ -19,6 +19,12 @@ typedef struct client_st {
 	data_queue *downstream_queue;
 	uint16_t encryption_counter;
 	struct client_st *next;
+	uint8_t *header_key;
+	uint8_t *body_key;
+	//uint8_t *mac_key
+	//EVP_CIPHER_CTX *header_ctx;
+	//EVP_CIPHER_CTX *body_ctx;
+	EVP_MD_CTX *mac_ctx;
 } client;
 
 typedef struct client_table_st {

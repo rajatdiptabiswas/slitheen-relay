@@ -331,6 +331,7 @@ int read_header(flow *f, struct packet_info *info){
 				if(!memcmp(last->slitheen_id, p, output_len)){
 					f->streams = last->streams;
 					f->downstream_queue = last->downstream_queue;
+					f->client_ptr = last; //TODO: clean this up
 					break;
 #ifdef DEBUG
 				} else {
@@ -361,6 +362,9 @@ int read_header(flow *f, struct packet_info *info){
 				new_client->encryption_counter = 0;
 	
 				new_client->next = NULL;
+
+				/* Now generate super encryption keys */ //TODO: use tagging trick
+				generate_client_super_keys(new_client->slitheen_id, new_client);
 
 				//add to client table
 				if(clients->first == NULL){
@@ -1205,7 +1209,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
  *  	length: The length of the downstream data required
  *
  */
-
+//TODO: change hard-coded values to depend on cipher
 int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 
 	uint8_t *p = data;
@@ -1215,10 +1219,19 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 	data_queue *downstream_queue = f->downstream_queue;
 	client *client_ptr = f->client_ptr;
 
+	printf("Filling with %d bytes\n", length);
+
 	//Fill as much as we can from the censored_queue
 	//Note: need enough for the header and one block of data (16 byte IV, 16 byte
 	//		block, 16 byte MAC) = header_len + 48.
 	while((remaining > (SLITHEEN_HEADER_LEN + 48)) && downstream_queue != NULL && downstream_queue->first_block != NULL){
+
+		//amount of data we'll actualy fill with (16 byte IV and 16 byte MAC)
+		int32_t fill_amount = remaining - SLITHEEN_HEADER_LEN - 32;
+		fill_amount -= fill_amount % 16; //rounded down to nearest block size
+
+		printf("Fill amount: %d\n", fill_amount);
+
 		queue_block *first_block = downstream_queue->first_block;
 		int32_t block_length = first_block->len;
 		int32_t offset = first_block->offset;
@@ -1229,21 +1242,27 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 		printf("We need %d bytes\n", remaining - SLITHEEN_HEADER_LEN);
 #endif
 		
+		uint8_t *encrypted_data = p;
 		sl_hdr = (struct slitheen_header *) p;
 		sl_hdr->counter = ++(client_ptr->encryption_counter);
 		sl_hdr->stream_id = first_block->stream_id;
 		sl_hdr->len = 0x0000;
 		sl_hdr->garbage = 0x0000;
+		sl_hdr->zeros = 0x0000;
 		p += SLITHEEN_HEADER_LEN;
 		remaining -= SLITHEEN_HEADER_LEN;
 
-		if(block_length > offset + remaining){
+		p += 16; //iv length
+		remaining -= 16;
+
+
+		if(block_length > offset + fill_amount){
 			//use part of the block, update offset
-			memcpy(p, first_block->data+offset, remaining);
-			first_block->offset += remaining;
-			p += remaining;
-			sl_hdr->len = remaining;
-			remaining -= remaining;
+			memcpy(p, first_block->data+offset, fill_amount);
+			first_block->offset += fill_amount;
+			p += fill_amount;
+			sl_hdr->len = fill_amount;
+			remaining -= fill_amount;
 		} else {
 			//use all of the block and free it
 			memcpy(p, first_block->data+offset, block_length - offset);
@@ -1256,6 +1275,31 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 			sl_hdr->len = (block_length - offset);
 			remaining -= (block_length - offset);
 		}
+
+		//pad to 16 bytes if necessary
+		uint8_t padding = 0;
+		if(sl_hdr->len %16){
+			padding = 16 - (sl_hdr->len)%16;
+			memset(p, padding, padding);
+			remaining -= padding;
+			p += padding;
+		}
+
+		//now encrypt
+		printf("Filled with %d bytes\n", sl_hdr->len);
+		super_encrypt(client_ptr, encrypted_data, sl_hdr->len + padding);
+		p += 16;
+		remaining -= 16;
+
+		//fill rest of packet with padding, if needed
+		if(remaining < SLITHEEN_HEADER_LEN){
+			printf("Padding with %d garbage bytes\n", remaining);
+			RAND_bytes(p, remaining);
+			sl_hdr->garbage = htons(remaining);
+			p += remaining;
+			remaining -= remaining;
+		}
+
 		sl_hdr->len = htons(sl_hdr->len);
 
 //#ifdef DEBUG
@@ -1265,7 +1309,7 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 		}
 		printf("\n");
 		printf("Sending %d downstream bytes:", ntohs(sl_hdr->len));
-		for(int i=0; i< ntohs(sl_hdr->len); i++){
+		for(int i=0; i< ntohs(sl_hdr->len)+16+16 + ntohs(sl_hdr->garbage); i++){
 			printf("%02x ", ((uint8_t *) sl_hdr)[i+SLITHEEN_HEADER_LEN]);
 		}
 		printf("\n");
@@ -1278,8 +1322,9 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 		sl_hdr->counter = 0x00;
 		sl_hdr->stream_id = 0x00;
 		remaining -= SLITHEEN_HEADER_LEN;
-		sl_hdr->len = htons(remaining);
-		sl_hdr->garbage = htons(remaining);//TODO: change this to a bit
+		sl_hdr->len = 0x00;
+		sl_hdr->garbage = htons(remaining);
+		sl_hdr->zeros = 0x0000;
 
 //#ifdef DEBUG
 		printf("DWNSTRM: slitheen header: ");
@@ -1291,9 +1336,9 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 
 		p += SLITHEEN_HEADER_LEN;
 		RAND_bytes(p, remaining);
-	} else {
+	} else if(remaining > 0){
 		//fill with random data
-		printf("Less than 16 bytes remaining, had to fill with random\n");
+		printf("UH OH! Less than 16 bytes remaining, had to fill with random\n");
 		RAND_bytes(p, remaining);
 	}
 

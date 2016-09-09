@@ -78,7 +78,8 @@ struct __attribute__((__packed__)) slitheen_header {
 	uint64_t counter;
 	uint16_t stream_id; /* determines which stream the data is from */
 	uint16_t len;
-	uint32_t garbage;
+	uint16_t garbage;
+	uint16_t zeros;
 };
 
 #define SLITHEEN_HEADER_LEN 16

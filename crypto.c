@@ -28,6 +28,7 @@
 #include "flow.h"
 #include "slitheen.h"
 #include "util.h"
+#include "relay.h"
 
 #define NID_sect163k1           721
 #define NID_sect163r1           722
@@ -737,7 +738,12 @@ int PRF(flow *f, uint8_t *secret, int32_t secret_len,
 
 	EVP_MD_CTX ctx, ctx_tmp, ctx_init;
 	EVP_PKEY *mac_key;
-	const EVP_MD *md = f->message_digest;
+	const EVP_MD *md;
+	if(f == NULL){
+		md = EVP_sha256();
+	} else {
+		md = f->message_digest;
+	}
 
 	uint8_t A[EVP_MAX_MD_SIZE];
 	size_t len, A_len;
@@ -985,6 +991,176 @@ void update_context(flow *f, uint8_t *input, int32_t len, int32_t incoming, int3
 	}
 
 	free(output);
+}
+
+/* Generate the keys for a client's super encryption layer
+ * 
+ * The header of each downstream slitheen data chunk is 16 bytes and encrypted with
+ * a 256 bit AES key
+ *
+ * The body of each downstream chunk is CBC encrypted with a 256 bit AES key
+ *
+ * The last 16 bytes of the body is a MAC over the body
+ *
+ */
+void generate_client_super_keys(uint8_t *secret, client *c){
+
+	//EVP_CIPHER_CTX *hdr_ctx;
+	//EVP_CIPHER_CTX *bdy_ctx;
+	EVP_MD_CTX *mac_ctx;
+
+	const EVP_MD *md = EVP_sha256();
+
+	/* Generate Keys */
+	uint8_t *hdr_key, *bdy_key;
+	uint8_t *mac_secret;
+	EVP_PKEY *mac_key;
+	int32_t mac_len, key_len;
+
+	key_len = EVP_CIPHER_key_length(EVP_aes_256_cbc());
+	mac_len = EVP_MD_size(md);
+	int32_t total_len = 2*key_len + mac_len;
+	uint8_t *key_block = ecalloc(1, total_len);
+
+	PRF(NULL, secret, SLITHEEN_SUPER_SECRET_SIZE,
+			(uint8_t *) SLITHEEN_SUPER_CONST, SLITHEEN_SUPER_CONST_SIZE,
+			NULL, 0,
+			NULL, 0,
+			NULL, 0,
+			key_block, total_len);
+
+//#ifdef DEBUG
+	printf("secret: \n");
+	for(int i=0; i< SLITHEEN_SUPER_SECRET_SIZE; i++){
+		printf("%02x ", secret[i]);
+	}
+	printf("\n");
+
+	printf("keyblock: \n");
+	for(int i=0; i< total_len; i++){
+		printf("%02x ", key_block[i]);
+	}
+	printf("\n");
+//#endif
+
+	hdr_key = key_block;
+	bdy_key = key_block + key_len;
+	mac_secret = key_block + 2*key_len;
+
+	/* Initialize Cipher Contexts */
+	//hdr_ctx = EVP_CIPHER_CTX_new();
+	//bdy_ctx = EVP_CIPHER_CTX_new();
+
+	//EVP_CipherInit_ex(hdr_ctx, EVP_aes_128_ecb(), NULL, hdr_key, NULL, 1);
+	//EVP_CipherInit_ex(bdy_ctx, EVP_aes_256_cbc(), NULL, bdy_key, bdy_iv, 1);
+
+	/* Initialize MAC Context */
+	mac_ctx = EVP_MD_CTX_create();
+	
+	EVP_DigestInit_ex(mac_ctx, md, NULL);
+	mac_key = EVP_PKEY_new_mac_key(EVP_PKEY_HMAC, NULL, mac_secret, mac_len);
+	EVP_DigestSignInit(mac_ctx, NULL, md, NULL, mac_key);
+
+	//c->header_ctx = hdr_ctx;
+	//c->body_ctx = bdy_ctx;
+	c->header_key = emalloc(key_len);
+	c->body_key = emalloc(key_len);
+
+	memcpy(c->header_key, hdr_key, key_len);
+	memcpy(c->body_key, bdy_key, key_len);
+
+	c->mac_ctx = mac_ctx;
+
+	//Free everything
+	free(key_block);
+	EVP_PKEY_free(mac_key);
+
+	return;
+
+}
+
+int super_encrypt(client *c, uint8_t *data, uint32_t len){
+
+	//EVP_CIPHER_CTX *hdr_ctx;
+	EVP_CIPHER_CTX *bdy_ctx;
+	
+	int32_t out_len;
+	size_t mac_len;
+	uint8_t *p = data;
+
+	uint8_t output[EVP_MAX_MD_SIZE];
+
+	/*first encrypt the header	
+	printf("Plaintext Header:\n");
+	for(int i=0; i< SLITHEEN_HEADER_LEN; i++){
+		printf("%02x ", p[i]);
+	}
+	printf("\n");
+
+	if(!EVP_CipherUpdate(c->header_ctx, p, &out_len, p, SLITHEEN_HEADER_LEN)){
+		printf("Failed!\n");
+		return 0;
+	}
+
+	printf("Encrypted Header (%d bytes)\n", out_len);
+	for(int i=0; i< out_len; i++){
+		printf("%02x ", p[i]);
+	}
+	printf("\n");
+	*/
+
+	//encrypt the body
+	p += SLITHEEN_HEADER_LEN;
+
+	//generate IV
+	RAND_bytes(p, 16);
+
+	//set up cipher ctx
+	bdy_ctx = EVP_CIPHER_CTX_new();
+
+	EVP_CipherInit_ex(bdy_ctx, EVP_aes_256_cbc(), NULL, c->body_key, p, 1);
+	
+	p+= 16;
+
+	printf("Plaintext:\n");
+	for(int i=0; i< len; i++){
+		printf("%02x ", p[i]);
+	}
+	printf("\n");
+
+	if(!EVP_CipherUpdate(bdy_ctx, p, &out_len, p, len)){
+		printf("Failed!\n");
+		return 0;
+	}
+
+	printf("Encrypted %d bytes\n", out_len);
+	printf("Encrypted data:\n");
+	for(int i=0; i< out_len; i++){
+		printf("%02x ", p[i]);
+	}
+	printf("\n");
+	
+	//MAC at the end
+	EVP_DigestSignUpdate(c->mac_ctx, p, out_len);
+
+	EVP_DigestSignFinal(c->mac_ctx, output, &mac_len);
+	printf("Produced a %zd byte mac:\n", mac_len);
+	for(int i=0; i< mac_len; i++){
+		printf("%02x ", output[i]);
+	}
+	printf("\n");
+
+	p += out_len;
+	memcpy(p, output, 16);
+
+	printf("Copied 16 bytes:\n");
+	for(int i=0; i< 16; i++){
+		printf("%02x ", p[i]);
+	}
+	printf("\n");
+	EVP_CIPHER_CTX_free(bdy_ctx);
+
+	return 1;
 }
 
 /** Checks a handshake message to see if it is tagged or a

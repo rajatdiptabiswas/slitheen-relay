@@ -7,6 +7,7 @@
 #define n2s(c,s)        ((s=(((unsigned int)(c[0]))<< 8)| \
 							(((unsigned int)(c[1]))    )),c+=2)
 
+
 /* Curves */
 
 
@@ -26,6 +27,8 @@ int update_finish_hash(flow *f, uint8_t *hs);
 int verify_finish_hash(flow *f, uint8_t *p, int32_t incoming);
 int init_ciphers(flow *f);
 void update_context(flow *f, uint8_t *input, int32_t len, int32_t incoming, int32_t type, int32_t enc);
+void generate_client_super_keys(uint8_t *secret, client *c);
+int super_encrypt(client *c, uint8_t *data, uint32_t len);
 void check_handshake(struct packet_info *info);
 
 int check_tag(byte key[16], const byte privkey[PTWIST_BYTES],
@@ -35,5 +38,9 @@ int check_tag(byte key[16], const byte privkey[PTWIST_BYTES],
 
 #define SLITHEEN_KEYGEN_CONST "SLITHEEN_KEYGEN"
 #define SLITHEEN_KEYGEN_CONST_SIZE 15
+
+#define SLITHEEN_SUPER_SECRET_SIZE 10 //TODO: make this larger/different (Right now SLITHEEN_ID_LEN)
+#define SLITHEEN_SUPER_CONST "SLITHEEN_SUPER_ENCRYPT"
+#define SLITHEEN_SUPER_CONST_SIZE 22
 
 #endif
