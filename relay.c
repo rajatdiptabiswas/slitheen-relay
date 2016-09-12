@@ -679,14 +679,14 @@ void *proxy_covert_site(void *data){
 			int32_t bytes_read = read(thread_data->pipefd, buffer, buffer_len);
 
 			if(bytes_read > 0){
-#ifdef DEBUG
+//#ifdef DEBUG
 				printf("PROXY (id %d): read %d bytes from pipe\n", stream_id, bytes_read);
 				for(int i=0; i< bytes_read; i++){
 					printf("%02x ", buffer[i]);
 				}
 				printf("\n");
 				printf("%s\n", buffer);
-#endif
+//#endif
 				bytes_sent = send(handle, buffer,
 						bytes_read, 0);
 				if( bytes_sent <= 0){
@@ -708,13 +708,13 @@ void *proxy_covert_site(void *data){
 			if(bytes_read > 0){
 				uint8_t *new_data = emalloc(bytes_read);
 				memcpy(new_data, buffer, bytes_read);
-#ifdef DEBUG
+//#ifdef DEBUG
 				printf("PROXY (id %d): read %d bytes from censored site\n",stream_id, bytes_read);
 				for(int i=0; i< bytes_read; i++){
 					printf("%02x ", buffer[i]);
 				}
 				printf("\n");
-#endif
+//#endif
 
 				//make a new queue block
 				queue_block *new_block = emalloc(sizeof(queue_block));
@@ -1285,9 +1285,7 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 			p += padding;
 		}
 
-		//now encrypt
 		printf("Filled with %d bytes\n", sl_hdr->len);
-		super_encrypt(client_ptr, encrypted_data, sl_hdr->len + padding);
 		p += 16;
 		remaining -= 16;
 
@@ -1300,7 +1298,12 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 			remaining -= remaining;
 		}
 
+		int16_t data_len = sl_hdr->len;
 		sl_hdr->len = htons(sl_hdr->len);
+
+		//now encrypt
+		super_encrypt(client_ptr, encrypted_data, data_len + padding);
+
 
 //#ifdef DEBUG
 		printf("DWNSTRM: slitheen header: ");
@@ -1308,8 +1311,8 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 			printf("%02x ",((uint8_t *) sl_hdr)[i]);
 		}
 		printf("\n");
-		printf("Sending %d downstream bytes:", ntohs(sl_hdr->len));
-		for(int i=0; i< ntohs(sl_hdr->len)+16+16 + ntohs(sl_hdr->garbage); i++){
+		printf("Sending %d downstream bytes:", data_len);
+		for(int i=0; i< data_len+16+16; i++){
 			printf("%02x ", ((uint8_t *) sl_hdr)[i+SLITHEEN_HEADER_LEN]);
 		}
 		printf("\n");
@@ -1333,6 +1336,9 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 		}
 		printf("\n");
 //#endif
+
+		//encrypt slitheen header
+		super_encrypt(client_ptr, p, 0);
 
 		p += SLITHEEN_HEADER_LEN;
 		RAND_bytes(p, remaining);

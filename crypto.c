@@ -1022,6 +1022,9 @@ void generate_client_super_keys(uint8_t *secret, client *c){
 	int32_t total_len = 2*key_len + mac_len;
 	uint8_t *key_block = ecalloc(1, total_len);
 
+	//extract shared secret from SLITHEEN_ID
+	
+
 	PRF(NULL, secret, SLITHEEN_SUPER_SECRET_SIZE,
 			(uint8_t *) SLITHEEN_SUPER_CONST, SLITHEEN_SUPER_CONST_SIZE,
 			NULL, 0,
@@ -1081,7 +1084,7 @@ void generate_client_super_keys(uint8_t *secret, client *c){
 
 int super_encrypt(client *c, uint8_t *data, uint32_t len){
 
-	//EVP_CIPHER_CTX *hdr_ctx;
+	EVP_CIPHER_CTX *hdr_ctx;
 	EVP_CIPHER_CTX *bdy_ctx;
 	
 	int32_t out_len;
@@ -1090,14 +1093,18 @@ int super_encrypt(client *c, uint8_t *data, uint32_t len){
 
 	uint8_t output[EVP_MAX_MD_SIZE];
 
-	/*first encrypt the header	
+	//first encrypt the header	
 	printf("Plaintext Header:\n");
 	for(int i=0; i< SLITHEEN_HEADER_LEN; i++){
 		printf("%02x ", p[i]);
 	}
 	printf("\n");
 
-	if(!EVP_CipherUpdate(c->header_ctx, p, &out_len, p, SLITHEEN_HEADER_LEN)){
+	hdr_ctx = EVP_CIPHER_CTX_new();
+
+	EVP_CipherInit_ex(hdr_ctx, EVP_aes_256_cbc(), NULL, c->header_key, NULL, 1);
+	
+	if(!EVP_CipherUpdate(hdr_ctx, p, &out_len, p, SLITHEEN_HEADER_LEN)){
 		printf("Failed!\n");
 		return 0;
 	}
@@ -1107,7 +1114,10 @@ int super_encrypt(client *c, uint8_t *data, uint32_t len){
 		printf("%02x ", p[i]);
 	}
 	printf("\n");
-	*/
+
+	if(len == 0){ //only encrypt header: body contains garbage bytes
+		return 1;
+	}
 
 	//encrypt the body
 	p += SLITHEEN_HEADER_LEN;
@@ -1159,6 +1169,7 @@ int super_encrypt(client *c, uint8_t *data, uint32_t len){
 	}
 	printf("\n");
 	EVP_CIPHER_CTX_free(bdy_ctx);
+	EVP_CIPHER_CTX_free(hdr_ctx);
 
 	return 1;
 }
