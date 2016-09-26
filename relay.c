@@ -316,13 +316,13 @@ int read_header(flow *f, struct packet_info *info){
 
 		if(i== 0){
 			//this is the Slitheen ID
-#ifdef DEBUG
+//#ifdef DEBUG
 			printf("Slitheen ID:");
 			for(int j=0; j< output_len; j++){
 				printf("%02x ", p[j]);
 			}
 			printf("\n");
-#endif
+//#endif
 
 			//find stream table or create new one
 
@@ -363,7 +363,7 @@ int read_header(flow *f, struct packet_info *info){
 	
 				new_client->next = NULL;
 
-				/* Now generate super encryption keys */ //TODO: use tagging trick
+				/* Now generate super encryption keys */
 				generate_client_super_keys(new_client->slitheen_id, new_client);
 
 				//add to client table

@@ -342,6 +342,10 @@ int encrypt(flow *f, uint8_t *input, uint8_t *output, int32_t len, int32_t incom
 
 /** Verifies the hash in a TLS finished message
  *
+ * Adds string derived from the client-relay shared secret to the finished hash.
+ * This feature detects and prevents suspicious behaviour in the event of a MiTM
+ * or RAD attack.
+ *
  * 	Inputs:
  * 		f: the tagged flow
  * 		p: a pointer to the TLS Finished handshake message
@@ -381,6 +385,8 @@ int verify_finish_hash(flow *f, uint8_t *p, int32_t incoming){
 		printf("VERIFY FAILED\n");
 		goto err;
 	}
+
+	//now add in extra input to finished hash and replace
 
 	free(output);
 	EVP_MD_CTX_cleanup(&ctx);
@@ -1005,11 +1011,40 @@ void update_context(flow *f, uint8_t *input, int32_t len, int32_t incoming, int3
  */
 void generate_client_super_keys(uint8_t *secret, client *c){
 
-	//EVP_CIPHER_CTX *hdr_ctx;
-	//EVP_CIPHER_CTX *bdy_ctx;
 	EVP_MD_CTX *mac_ctx;
-
 	const EVP_MD *md = EVP_sha256();
+
+	FILE *fp;
+
+	//extract shared secret from SLITHEEN_ID
+	uint8_t shared_secret[16];
+    byte privkey[PTWIST_BYTES];
+
+	fp = fopen("privkey", "rb");
+	if (fp == NULL) {
+		perror("fopen");
+		exit(1);
+	}
+	if(fread(privkey, PTWIST_BYTES, 1, fp) < 1){
+		perror("fread");
+		exit(1);
+	}
+	fclose(fp);
+
+	/* check tag*/ 
+	if(check_tag(shared_secret, privkey, secret, (const byte *)"context", 7)){
+		//something went wrong O.o
+		printf("Error extracting secret from tag\n");
+		return;
+	}
+
+#ifdef DEBUG
+	printf("Shared secret: ");
+	for(int i=0; i< 16; i++){
+		printf("%02x ", shared_secret[i]);
+	}
+	printf("\n");
+#endif
 
 	/* Generate Keys */
 	uint8_t *hdr_key, *bdy_key;
@@ -1022,19 +1057,16 @@ void generate_client_super_keys(uint8_t *secret, client *c){
 	int32_t total_len = 2*key_len + mac_len;
 	uint8_t *key_block = ecalloc(1, total_len);
 
-	//extract shared secret from SLITHEEN_ID
-	
-
-	PRF(NULL, secret, SLITHEEN_SUPER_SECRET_SIZE,
+	PRF(NULL, shared_secret, SLITHEEN_SUPER_SECRET_SIZE,
 			(uint8_t *) SLITHEEN_SUPER_CONST, SLITHEEN_SUPER_CONST_SIZE,
 			NULL, 0,
 			NULL, 0,
 			NULL, 0,
 			key_block, total_len);
 
-//#ifdef DEBUG
-	printf("secret: \n");
-	for(int i=0; i< SLITHEEN_SUPER_SECRET_SIZE; i++){
+#ifdef DEBUG
+	printf("slitheend id: \n");
+	for(int i=0; i< SLITHEEN_ID_LEN; i++){
 		printf("%02x ", secret[i]);
 	}
 	printf("\n");
@@ -1044,18 +1076,11 @@ void generate_client_super_keys(uint8_t *secret, client *c){
 		printf("%02x ", key_block[i]);
 	}
 	printf("\n");
-//#endif
+#endif
 
 	hdr_key = key_block;
 	bdy_key = key_block + key_len;
 	mac_secret = key_block + 2*key_len;
-
-	/* Initialize Cipher Contexts */
-	//hdr_ctx = EVP_CIPHER_CTX_new();
-	//bdy_ctx = EVP_CIPHER_CTX_new();
-
-	//EVP_CipherInit_ex(hdr_ctx, EVP_aes_128_ecb(), NULL, hdr_key, NULL, 1);
-	//EVP_CipherInit_ex(bdy_ctx, EVP_aes_256_cbc(), NULL, bdy_key, bdy_iv, 1);
 
 	/* Initialize MAC Context */
 	mac_ctx = EVP_MD_CTX_create();
@@ -1064,8 +1089,6 @@ void generate_client_super_keys(uint8_t *secret, client *c){
 	mac_key = EVP_PKEY_new_mac_key(EVP_PKEY_HMAC, NULL, mac_secret, mac_len);
 	EVP_DigestSignInit(mac_ctx, NULL, md, NULL, mac_key);
 
-	//c->header_ctx = hdr_ctx;
-	//c->body_ctx = bdy_ctx;
 	c->header_key = emalloc(key_len);
 	c->body_key = emalloc(key_len);
 

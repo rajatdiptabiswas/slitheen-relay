@@ -9,7 +9,7 @@
 #include "slitheen.h"
 
 #define MAX_FLOWS 10
-#define SLITHEEN_ID_LEN 10
+#define SLITHEEN_ID_LEN 28
 
 #define TLS_HELLO_REQ 0x00
 #define TLS_CLNT_HELLO 0x01

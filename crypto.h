@@ -39,7 +39,7 @@ int check_tag(byte key[16], const byte privkey[PTWIST_BYTES],
 #define SLITHEEN_KEYGEN_CONST "SLITHEEN_KEYGEN"
 #define SLITHEEN_KEYGEN_CONST_SIZE 15
 
-#define SLITHEEN_SUPER_SECRET_SIZE 10 //TODO: make this larger/different (Right now SLITHEEN_ID_LEN)
+#define SLITHEEN_SUPER_SECRET_SIZE 16 //extracted from slitheen ID tag
 #define SLITHEEN_SUPER_CONST "SLITHEEN_SUPER_ENCRYPT"
 #define SLITHEEN_SUPER_CONST_SIZE 22
 
