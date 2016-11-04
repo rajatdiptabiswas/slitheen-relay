@@ -168,9 +168,14 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 			p += RECORD_HEADER_LEN;
 
 			if((incoming && f->in_encrypted) || (!incoming && f->out_encrypted)){
-#ifdef DEBUG_HS
+//#ifdef DEBUG_HS
 				printf("Decrypting finished (%d bytes) (%x:%d -> %x:%d)\n", record_len - RECORD_HEADER_LEN, f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port));
-#endif
+				printf("Finished ciphertext:\n");
+				for(int i=0; i< record_len; i++){
+					printf("%02x ", record[i]);
+				}
+				printf("\n");
+//#endif
 				int32_t n = encrypt(f, p, p, record_len - RECORD_HEADER_LEN, incoming, 0x16, 0);
 				if(n<=0){
 					printf("Error decrypting finished  (%x:%d -> %x:%d)\n", f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port));
@@ -191,9 +196,13 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 					p[0] = 0x20; //trigger error
 				}
 
-				update_context(f, p, n, incoming, 0x16, 0);
-				if(incoming) f->in_encrypted = 2;
-				else f->out_encrypted = 2;
+				if(incoming){
+					f->in_encrypted = 2;
+				} else {
+					f->out_encrypted = 2;
+					update_context(f, p, n, incoming, 0x16, 0);
+				}
+
 			}
 			handshake_hdr = (struct handshake_header*) p;
 			f->state = handshake_hdr->type;
@@ -344,6 +353,25 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 						goto err;
 					}
 
+					//re-encrypt finished message
+					if(incoming){
+						//revert the sequence number
+						memset(f->read_seq, 0, 8);
+
+						int32_t n =  encrypt(f, record+RECORD_HEADER_LEN, record+RECORD_HEADER_LEN, record_len - (RECORD_HEADER_LEN+16), incoming, 0x16, 1);
+
+						printf("New finished ciphertext:\n");
+						for(int i=0; i< record_len; i++){
+							printf("%02x ", record[i]);
+						}
+						printf("\n");
+
+						if(n<=0){
+							printf("Error re-encrypting finished  (%x:%d -> %x:%d)\n", f->src_ip.s_addr, ntohs(f->src_port),
+									f->dst_ip.s_addr, ntohs(f->dst_port));
+						}
+					}
+
 					if((f->in_encrypted == 2) && (f->out_encrypted == 2)){
 						printf("Handshake complete!\n");
 						f->application = 1;
@@ -398,11 +426,9 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 			fflush(stdout);
 			goto err;
 	}
-	free(record);
 	return 0;
 
 err:
-	free(record);
 	return 1;
 }
 
@@ -957,8 +983,13 @@ int add_packet(flow *f, struct packet_info *info){
 		if(new_packet->seq_num == chain->expected_seq_num){
 			chain->expected_seq_num += new_packet->len;
 
+			uint32_t record_offset = 0; //offset into record for updating info with any changes
+			uint32_t info_offset = 0; //offset into info for updating with changes
+			uint32_t info_len = 0; //number of bytes that possibly changed
+
 			//while there is still data left:
 			uint32_t available_data = new_packet->len;
+
 			while(available_data > 0){
 
 				//if full record, give to update_flow
@@ -967,19 +998,30 @@ int add_packet(flow *f, struct packet_info *info){
 					uint8_t *record = emalloc(chain->record_len);
 					uint32_t record_len = chain->record_len;
 					uint32_t tmp_len = chain->record_len;
+
 					packet *next = chain->first_packet;
 					while(tmp_len > 0){
 						if(tmp_len >= next->len){
 							memcpy(record+chain->record_len - tmp_len, next->data, next->len);
+							if(next == new_packet){
+								new_packet = NULL;
+								record_offset = chain->record_len - tmp_len;
+								info_len = next->len;
+							}
+
 							tmp_len -= next->len;
 							chain->first_packet = next->next;
-							if(next == new_packet) new_packet = NULL;
 							free(next->data);
 							free(next);
 							next = chain->first_packet;
 							available_data = 0;
 						} else {
 							memcpy(record+chain->record_len - tmp_len, next->data, tmp_len);
+							if(next == new_packet){
+								record_offset = chain->record_len - tmp_len;
+								info_len = tmp_len;
+							}
+
 							memmove(next->data, next->data+tmp_len, next->len - tmp_len);
 							next->len -= tmp_len;
 							available_data -= tmp_len;
@@ -996,6 +1038,7 @@ int add_packet(flow *f, struct packet_info *info){
 						}
 					}
 					//if handshake is complete, send to relay code
+					//TODO: check to see if this code needs to replace info->data
 					if(f->application == 1){
 						//update packet info and send to replace_packet
 						printf("Packet contains application data!\n");
@@ -1007,6 +1050,45 @@ int add_packet(flow *f, struct packet_info *info){
 						free(copy_info);
 					} else {
 						update_flow(f, record, incoming);
+
+						//check to see if last finished message received
+						if(f->application ==1){
+							//TODO: replace finish message hash
+							printf("Replacing info->data with finished message (%d bytes).\n", info_len);
+
+							printf("Previous bytes:\n");
+							for(int i=0; i<info_len; i++){
+								printf("%02x ", info->app_data[info_offset+i]);
+							}
+							printf("\n");
+							printf("New bytes:\n");
+							for(int i=0; i<info_len; i++){
+								printf("%02x ", record[record_offset+i]);
+							}
+							printf("\n");
+
+							printf("SLITHEEN: Previous packet contents:\n");
+							for(int i=0; i< info->app_data_len; i++){
+								printf("%02x ", info->app_data[i]);
+							}
+							printf("\n");
+							memcpy(info->app_data+info_offset, record+record_offset, info_len);
+							printf("SLITHEEN: Current packet contents:\n");
+							for(int i=0; i< info->app_data_len; i++){
+								printf("%02x ", info->app_data[i]);
+							}
+							printf("\n");
+
+							//update TCP checksum
+							tcp_checksum(info);
+						}
+						free(record);
+
+						if(new_packet != NULL){
+							info_offset += info_len;
+							printf("updating info_offset to %d.\n", info_offset);
+						}
+
 					}
 				} else {
 					chain->remaining_record_len -= new_packet->len;

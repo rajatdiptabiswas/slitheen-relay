@@ -110,6 +110,12 @@ int update_finish_hash(flow *f, uint8_t *hs){
 	
 	EVP_DigestUpdate(f->finish_md_ctx, hs, hs_len+4);
 
+	printf("SLITHEEN: adding to finish mac computation:\n");
+	for(int i=0; i< hs_len + 4; i++){
+		printf("%02x ", hs[i]);
+	}
+	printf("\n");
+
 	return 0;
 }
 
@@ -289,19 +295,20 @@ int encrypt(flow *f, uint8_t *input, uint8_t *output, int32_t len, int32_t incom
 	seq = (incoming) ? f->read_seq : f->write_seq;
 
 	if(f->application && (ds->iv[EVP_GCM_TLS_FIXED_IV_LEN] == 0)){
+		printf("MERP\n");
 		//fill in rest of iv
 		for(int i = EVP_GCM_TLS_FIXED_IV_LEN; i< ds->cipher->iv_len; i++){
 			ds->iv[i] = p[i- EVP_GCM_TLS_FIXED_IV_LEN];
 		}
 	}
 
-#ifdef DEBUG
+//#ifdef DEBUG
 	printf("\t\tiv: ");
 	for(int i=0; i<ds->cipher->iv_len; i++){
 		printf("%02X ", ds->iv[i]);
 	}
 	printf("\n");
-#endif
+//#endif
 
 	uint8_t buf[13];
 	memcpy(buf, seq, 8);
@@ -323,16 +330,18 @@ int encrypt(flow *f, uint8_t *input, uint8_t *output, int32_t len, int32_t incom
 	if(enc)
 		len += pad;
 
+	printf("len: %d\n", len);
+
 	int32_t n = EVP_Cipher(ds, p, p, len); //decrypt in place
 	if(n<0) return 0;
 
-#ifdef DEBUG
+//#ifdef DEBUG
 	printf("decrypted data:\n");
 	for(int i=0; i< len; i++){
 		printf("%02x ", p[EVP_GCM_TLS_EXPLICIT_IV_LEN+i]);
 	}
 	printf("\n");
-#endif
+//#endif
 
 	if(!enc)
 		p[EVP_GCM_TLS_EXPLICIT_IV_LEN+n] = '\0';
@@ -354,10 +363,11 @@ int encrypt(flow *f, uint8_t *input, uint8_t *output, int32_t len, int32_t incom
  * 	Output:
  * 		0 on success, 1 on failure
  */
-int verify_finish_hash(flow *f, uint8_t *p, int32_t incoming){
+int verify_finish_hash(flow *f, uint8_t *hs, int32_t incoming){
 	EVP_MD_CTX ctx;
 	uint8_t hash[EVP_MAX_MD_SIZE];
 	uint32_t hash_len;
+	uint8_t *p = hs;
 
 	EVP_MD_CTX_init(&ctx);
 	
@@ -367,9 +377,17 @@ int verify_finish_hash(flow *f, uint8_t *p, int32_t incoming){
 	uint32_t fin_length = HANDSHAKE_MESSAGE_LEN(hs_hdr);
 	p += HANDSHAKE_HEADER_LEN;
 
-	//finalize hash of handshake msgs
+	//finalize hash of handshake msgs (have not yet added this one)
 	EVP_MD_CTX_copy_ex(&ctx, f->finish_md_ctx);
 	EVP_DigestFinal_ex(&ctx, hash, &hash_len);
+
+	if(incoming){
+		printf("expected md hash:\n");
+		for(int i=0; i< hash_len; i++){
+			printf("%02x ", hash[i]);
+		}
+		printf("\n");
+	}
 
 	//now use pseudorandom function
 	uint8_t *output = ecalloc(1, fin_length);
@@ -386,7 +404,48 @@ int verify_finish_hash(flow *f, uint8_t *p, int32_t incoming){
 		goto err;
 	}
 
-	//now add in extra input to finished hash and replace
+	//now add extra input seeded with client-relay shared secret
+	if(incoming){
+		uint32_t extra_input_len = SSL3_RANDOM_SIZE;
+		uint8_t *extra_input = calloc(1, extra_input_len);
+
+		PRF(f, f->master_secret, SSL3_MASTER_SECRET_SIZE,
+			(uint8_t *) SLITHEEN_FINISHED_INPUT_CONST, SLITHEEN_FINISHED_INPUT_CONST_SIZE,
+			NULL, 0, NULL, 0, NULL, 0,
+			extra_input, extra_input_len);
+
+		printf("extra input:\n");
+		for(int i=0; i< extra_input_len; i++){
+			printf("%02x ", extra_input[i]);
+		}
+		printf("\n");
+
+		EVP_MD_CTX_copy_ex(&ctx, f->finish_md_ctx);
+		EVP_DigestUpdate(&ctx, extra_input, extra_input_len);
+
+		EVP_DigestFinal_ex(&ctx, hash, &hash_len);
+
+		printf("updated md hash:\n");
+		for(int i=0; i< hash_len; i++){
+			printf("%02x ", hash[i]);
+		}
+		printf("\n");
+
+		PRF(f, f->master_secret, SSL3_MASTER_SECRET_SIZE,
+			(uint8_t *) TLS_MD_SERVER_FINISH_CONST, TLS_MD_SERVER_FINISH_CONST_SIZE ,
+			hash, hash_len, NULL, 0, NULL, 0,
+			output, fin_length);
+
+		printf("modified mac:\n");
+		for(int i=0; i< fin_length; i++){
+			printf("%02x ", output[i]);
+		}
+		printf("\n");
+
+		//replace existing MAC with modified one
+		memcpy(p, output, fin_length);
+
+	}
 
 	free(output);
 	EVP_MD_CTX_cleanup(&ctx);
