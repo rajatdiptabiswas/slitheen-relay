@@ -181,31 +181,272 @@ end:
  */
 void process_packet(struct packet_info *info){
 
-
 	/* Checks to see if this is a possibly tagged hello msg */
 	if ((info->record_hdr != NULL) && (info->record_hdr->type == HS)){ /* This is a TLS handshake */
 		check_handshake(info);
 	}
 
+
 	/* Now if flow is in table, update state */
 	flow *observed;
 	if((observed = check_flow(info)) != NULL){
 	
-		if(observed->application){
-			replace_packet(observed, info);
-		} else {
+#ifdef DEBUG
+		/*Check sequence number and replay application data if necessary*/
+		fprintf(stdout,"Flow: %x:%d > %x:%d (%s)\n", info->ip_hdr->src.s_addr, ntohs(info->tcp_hdr->src_port), info->ip_hdr->dst.s_addr, ntohs(info->tcp_hdr->dst_port), (info->ip_hdr->src.s_addr != observed->src_ip.s_addr)? "incoming":"outgoing");
+		fprintf(stdout,"ID number: %u\n", htonl(info->ip_hdr->id));
+		fprintf(stdout,"Sequence number: %u\n", htonl(info->tcp_hdr->sequence_num));
+		fprintf(stdout,"Acknowledgement number: %u\n", htonl(info->tcp_hdr->ack_num));
+#endif
 
-			/* Pass data to packet chain */
-			add_packet(observed, info);
+		uint8_t incoming = (info->ip_hdr->src.s_addr != observed->src_ip.s_addr)? 1 : 0;
+		uint32_t seq_num = htonl(info->tcp_hdr->sequence_num);
+		uint32_t expected_seq = (incoming)? observed->downstream_seq_num : observed->upstream_seq_num;
+#ifdef DEBUG
+		fprintf(stdout,"Expected sequence number: %u\n", expected_seq);
+#endif
+
+
+		//remove acked data from opposite queue
+		uint32_t ack_num = htonl(info->tcp_hdr->ack_num);
+		packet *saved_data = (incoming)? observed->upstream_app_data->first_packet :
+			observed->downstream_app_data->first_packet;
+		while((saved_data != NULL) &&(ack_num > saved_data->seq_num)){
+			//remove acked data
+			if(ack_num >= saved_data->seq_num + saved_data->len){
+				//remove entire block
+				if(incoming){
+					observed->upstream_app_data->first_packet = saved_data->next;
+				} else {
+					observed->downstream_app_data->first_packet = saved_data->next;
+				}
+
+				free(saved_data->data);
+				free(saved_data);
+				saved_data = (incoming)? observed->upstream_app_data->first_packet :
+					observed->downstream_app_data->first_packet;
+			} else {
+				//remove partial block
+				uint32_t amt_acked = ack_num - saved_data->seq_num;
+				memmove(saved_data->data, saved_data->data+amt_acked, saved_data->len - amt_acked);
+				saved_data->len -= amt_acked;
+				saved_data->seq_num += amt_acked;
+			}
+#ifdef DEBUG
+			if(saved_data != NULL){
+				printf("Currently saved seq_num is now %u\n", saved_data->seq_num);
+			} else {
+				printf("Acked all data, queue is empty\n");
+			}
+#endif
+
 		}
 
-		/* Update TCP state */
-		if(info->tcp_hdr->flags & (FIN | RST) ){
-			/* Remove flow from table, connection ended */
-			remove_flow(observed);
+		//fill with retransmit data, process new data
+		uint32_t data_to_fill;
+		uint32_t data_to_process;
+
+		if(seq_num > expected_seq){
+			data_to_process = info->app_data_len;
+			data_to_fill = 0;
+		} else if (seq_num + info->app_data_len > expected_seq){
+			data_to_fill = expected_seq - seq_num;
+			data_to_process = seq_num + info->app_data_len - expected_seq;
+		} else {
+			data_to_fill = info->app_data_len;
+			data_to_process = 0;
+		}
+
+		uint8_t *p = info->app_data;
+
+		if(data_to_fill){ //retransmit
+			packet *saved_data = (incoming)? observed->downstream_app_data->first_packet :
+				observed->upstream_app_data->first_packet;
+
+
+			while(data_to_fill > 0){
+				if(saved_data == NULL){
+					//have already acked all data
+					p += data_to_fill;
+					seq_num += data_to_fill;
+					data_to_fill -= data_to_fill;
+					continue;
+				}
+
+				if(seq_num < saved_data->seq_num){
+					//we are missing a block. Use what was given
+					if(saved_data->seq_num - seq_num > data_to_fill){
+						//skip the rest
+						p += data_to_fill;
+						seq_num += data_to_fill;
+						data_to_fill -= data_to_fill;
+					} else {
+						p += saved_data->seq_num - seq_num;
+						seq_num += saved_data->seq_num - seq_num;
+						data_to_fill -= saved_data->seq_num - seq_num;
+					}
+				} else if ( seq_num == saved_data->seq_num) {
+
+					if(data_to_fill >= saved_data->len){
+						//exhaust this block and move onto next one
+						memcpy(p, saved_data->data, saved_data->len);
+						p += saved_data->len;
+						seq_num += saved_data->len;
+						data_to_fill -= saved_data->len;
+						saved_data = saved_data->next;
+					} else {
+						//fill with partial block
+						memcpy(p, saved_data->data, data_to_fill);
+						p += data_to_fill;
+						seq_num += data_to_fill;
+						data_to_fill -= data_to_fill;
+					}
+				} else { //seq_num > saved_data->seq_num
+					uint32_t offset = seq_num - saved_data->seq_num;
+					
+					if(offset > saved_data->len){
+						saved_data = saved_data->next;
+						offset -= saved_data->len;
+					} else {
+						if(data_to_fill > saved_data->len - offset){
+							memcpy(p, saved_data->data + offset, saved_data->len - offset);
+							p += saved_data->len - offset;
+							seq_num += saved_data->len - offset;
+							data_to_fill -= saved_data->len - offset;
+							saved_data = saved_data->next;
+						} else {
+							memcpy(p, saved_data->data + offset, data_to_fill);
+							p += data_to_fill;
+							seq_num += data_to_fill;
+							data_to_fill -= data_to_fill;
+						}
+					}
+				}
+			}
+
+		}
+		tcp_checksum(info);//update checksum
+
+		if(data_to_process){
+
+			if(p != info->app_data){
+				printf("UH OH something weird might happen\n");
+			}
+
+			if(observed->application){
+				replace_packet(observed, info);
+			} else {
+
+				/* Pass data to packet chain */
+				add_packet(observed, info);
+			}
+
+			/* Update TCP state */
+			if(info->tcp_hdr->flags & (FIN | RST) ){
+				/* Remove flow from table, connection ended */
+				remove_flow(observed);
+			} else {
+				/* add packet to application data queue */
+
+				//add new app block
+				packet *new_block = ecalloc(1, sizeof(packet));
+				new_block->seq_num = seq_num;
+				new_block->data = ecalloc(1, info->app_data_len);
+				memcpy(new_block->data, info->app_data, info->app_data_len);
+				new_block->len = info->app_data_len;
+				new_block->next = NULL;
+
+				packet *saved_data = (incoming)? observed->downstream_app_data->first_packet :
+					observed->upstream_app_data->first_packet;
+
+				//put app data block in queue
+				if(saved_data == NULL){
+					if(incoming){
+						observed->downstream_app_data->first_packet = new_block;
+						if(new_block->seq_num ==
+								observed->downstream_seq_num){
+							observed->downstream_seq_num += new_block->len;
+#ifdef DEBUG
+							printf("Updated downstream expected seqnum to %u\n",
+									observed->downstream_seq_num );
+#endif
+						}
+					} else {
+						observed->upstream_app_data->first_packet = new_block;
+						if(new_block->seq_num ==
+								observed->upstream_seq_num){
+							observed->upstream_seq_num += new_block->len;
+#ifdef DEBUG
+							printf("Updated upstream expected seqnum to %u\n",
+									observed->upstream_seq_num );
+#endif
+						}
+					}
+
+				}
+				else{
+					uint8_t saved = 0;
+					while(saved_data->next != NULL){
+						if(!saved && (saved_data->next->seq_num > seq_num)){
+							new_block->next = saved_data->next;
+							saved_data->next = new_block;
+							saved = 1;
+						}
+
+						//update expected sequence number
+						if(incoming){
+							if(saved_data->next->seq_num ==
+									observed->downstream_seq_num){
+								observed->downstream_seq_num += saved_data->next->len;
+#ifdef DEBUG
+								printf("Updated downstream expected seqnum to %u\n",
+										observed->downstream_seq_num );
+#endif
+							}
+						} else {//outgoing
+							if(saved_data->next->seq_num ==
+									observed->upstream_seq_num){
+								observed->upstream_seq_num += saved_data->next->len;
+#ifdef DEBUG
+								printf("Updated upstream expected seqnum to %u\n",
+										observed->upstream_seq_num );
+#endif
+							}
+						}
+							
+						saved_data = saved_data->next;
+
+					}
+					if(!saved){
+						saved_data->next = new_block;
+						//update expected sequence number
+						if(incoming){
+							if(saved_data->next->seq_num ==
+									observed->downstream_seq_num){
+								observed->downstream_seq_num += saved_data->next->len;
+#ifdef DEBUG
+								printf("Updated downstream expected seqnum to %u\n",
+										observed->downstream_seq_num );
+#endif
+							}
+						} else {//outgoing
+							if(saved_data->next->seq_num ==
+									observed->upstream_seq_num){
+								observed->upstream_seq_num += saved_data->next->len;
+#ifdef DEBUG
+								printf("Updated upstream expected seqnum to %u\n",
+										observed->upstream_seq_num );
+#endif
+							}
+						}
+
+					}
+				}
+			}
 		}
 
 	}
+
 
 }
 

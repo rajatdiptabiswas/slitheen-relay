@@ -110,11 +110,13 @@ int update_finish_hash(flow *f, uint8_t *hs){
 	
 	EVP_DigestUpdate(f->finish_md_ctx, hs, hs_len+4);
 
+#ifdef DEBUG
 	printf("SLITHEEN: adding to finish mac computation:\n");
 	for(int i=0; i< hs_len + 4; i++){
 		printf("%02x ", hs[i]);
 	}
 	printf("\n");
+#endif
 
 	return 0;
 }
@@ -295,20 +297,20 @@ int encrypt(flow *f, uint8_t *input, uint8_t *output, int32_t len, int32_t incom
 	seq = (incoming) ? f->read_seq : f->write_seq;
 
 	if(f->application && (ds->iv[EVP_GCM_TLS_FIXED_IV_LEN] == 0)){
-		printf("MERP\n");
+		//printf("MERP\n");
 		//fill in rest of iv
 		for(int i = EVP_GCM_TLS_FIXED_IV_LEN; i< ds->cipher->iv_len; i++){
 			ds->iv[i] = p[i- EVP_GCM_TLS_FIXED_IV_LEN];
 		}
 	}
 
-//#ifdef DEBUG
+#ifdef DEBUG
 	printf("\t\tiv: ");
 	for(int i=0; i<ds->cipher->iv_len; i++){
 		printf("%02X ", ds->iv[i]);
 	}
 	printf("\n");
-//#endif
+#endif
 
 	uint8_t buf[13];
 	memcpy(buf, seq, 8);
@@ -330,18 +332,16 @@ int encrypt(flow *f, uint8_t *input, uint8_t *output, int32_t len, int32_t incom
 	if(enc)
 		len += pad;
 
-	printf("len: %d\n", len);
-
 	int32_t n = EVP_Cipher(ds, p, p, len); //decrypt in place
 	if(n<0) return 0;
 
-//#ifdef DEBUG
+#ifdef DEBUG
 	printf("decrypted data:\n");
 	for(int i=0; i< len; i++){
 		printf("%02x ", p[EVP_GCM_TLS_EXPLICIT_IV_LEN+i]);
 	}
 	printf("\n");
-//#endif
+#endif
 
 	if(!enc)
 		p[EVP_GCM_TLS_EXPLICIT_IV_LEN+n] = '\0';
@@ -381,14 +381,6 @@ int verify_finish_hash(flow *f, uint8_t *hs, int32_t incoming){
 	EVP_MD_CTX_copy_ex(&ctx, f->finish_md_ctx);
 	EVP_DigestFinal_ex(&ctx, hash, &hash_len);
 
-	if(incoming){
-		printf("expected md hash:\n");
-		for(int i=0; i< hash_len; i++){
-			printf("%02x ", hash[i]);
-		}
-		printf("\n");
-	}
-
 	//now use pseudorandom function
 	uint8_t *output = ecalloc(1, fin_length);
 
@@ -414,33 +406,15 @@ int verify_finish_hash(flow *f, uint8_t *hs, int32_t incoming){
 			NULL, 0, NULL, 0, NULL, 0,
 			extra_input, extra_input_len);
 
-		printf("extra input:\n");
-		for(int i=0; i< extra_input_len; i++){
-			printf("%02x ", extra_input[i]);
-		}
-		printf("\n");
-
 		EVP_MD_CTX_copy_ex(&ctx, f->finish_md_ctx);
 		EVP_DigestUpdate(&ctx, extra_input, extra_input_len);
 
 		EVP_DigestFinal_ex(&ctx, hash, &hash_len);
 
-		printf("updated md hash:\n");
-		for(int i=0; i< hash_len; i++){
-			printf("%02x ", hash[i]);
-		}
-		printf("\n");
-
 		PRF(f, f->master_secret, SSL3_MASTER_SECRET_SIZE,
 			(uint8_t *) TLS_MD_SERVER_FINISH_CONST, TLS_MD_SERVER_FINISH_CONST_SIZE ,
 			hash, hash_len, NULL, 0, NULL, 0,
 			output, fin_length);
-
-		printf("modified mac:\n");
-		for(int i=0; i< fin_length; i++){
-			printf("%02x ", output[i]);
-		}
-		printf("\n");
 
 		//replace existing MAC with modified one
 		memcpy(p, output, fin_length);
@@ -1176,11 +1150,13 @@ int super_encrypt(client *c, uint8_t *data, uint32_t len){
 	uint8_t output[EVP_MAX_MD_SIZE];
 
 	//first encrypt the header	
+#ifdef DEBUG
 	printf("Plaintext Header:\n");
 	for(int i=0; i< SLITHEEN_HEADER_LEN; i++){
 		printf("%02x ", p[i]);
 	}
 	printf("\n");
+#endif
 
 	hdr_ctx = EVP_CIPHER_CTX_new();
 
@@ -1191,11 +1167,13 @@ int super_encrypt(client *c, uint8_t *data, uint32_t len){
 		return 0;
 	}
 
+#ifdef DEBUG
 	printf("Encrypted Header (%d bytes)\n", out_len);
 	for(int i=0; i< out_len; i++){
 		printf("%02x ", p[i]);
 	}
 	printf("\n");
+#endif
 
 	if(len == 0){ //only encrypt header: body contains garbage bytes
 		return 1;
@@ -1214,42 +1192,36 @@ int super_encrypt(client *c, uint8_t *data, uint32_t len){
 	
 	p+= 16;
 
+#ifdef DEBUG
 	printf("Plaintext:\n");
 	for(int i=0; i< len; i++){
 		printf("%02x ", p[i]);
 	}
 	printf("\n");
+#endif
 
 	if(!EVP_CipherUpdate(bdy_ctx, p, &out_len, p, len)){
 		printf("Failed!\n");
 		return 0;
 	}
 
+#ifdef DEBUG
 	printf("Encrypted %d bytes\n", out_len);
 	printf("Encrypted data:\n");
 	for(int i=0; i< out_len; i++){
 		printf("%02x ", p[i]);
 	}
 	printf("\n");
+#endif
 	
 	//MAC at the end
 	EVP_DigestSignUpdate(c->mac_ctx, p, out_len);
 
 	EVP_DigestSignFinal(c->mac_ctx, output, &mac_len);
-	printf("Produced a %zd byte mac:\n", mac_len);
-	for(int i=0; i< mac_len; i++){
-		printf("%02x ", output[i]);
-	}
-	printf("\n");
 
 	p += out_len;
 	memcpy(p, output, 16);
 
-	printf("Copied 16 bytes:\n");
-	for(int i=0; i< 16; i++){
-		printf("%02x ", p[i]);
-	}
-	printf("\n");
 	EVP_CIPHER_CTX_free(bdy_ctx);
 	EVP_CIPHER_CTX_free(hdr_ctx);
 

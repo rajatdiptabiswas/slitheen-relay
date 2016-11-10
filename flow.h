@@ -41,7 +41,6 @@ typedef struct packet_st{
 	uint16_t len;
 	uint8_t *data;
 	struct packet_st *next;
-	int incoming; //0 for outgoing, 1 for incoming
 } packet;
 
 typedef struct packet_chain_st {
@@ -62,6 +61,10 @@ typedef struct queue_block_st{
 typedef struct data_queue_st {
 	queue_block *first_block;
 } data_queue;
+
+typedef struct app_data_queue_st {
+	packet *first_packet;
+} app_data_queue;
 
 typedef struct session_st {
 	uint8_t session_id_len;
@@ -85,8 +88,11 @@ typedef struct flow_st {
 	struct in_addr src_ip, dst_ip; /* Source (client) and Destination (server) addresses */
 	uint16_t src_port, dst_port;	/* Source and Destination ports */
 
-	uint32_t upstream_seq_num;		/* sequence number */
+	uint32_t upstream_seq_num;		/* sequence number TODO: are these used?*/
 	uint32_t downstream_seq_num;		/* sequence number */
+
+	app_data_queue *upstream_app_data;	/* Saved application-layer data for packet retransmits */
+	app_data_queue *downstream_app_data;
 
 	byte key[16];		/* negotiated key */
 	int state;		/* TLS handshake state */

@@ -78,9 +78,7 @@ int replace_packet(flow *f, struct packet_info *info){
 			f->downstream_seq_num += info->app_data_len;
 
 		/* if incoming, replace with data from queue */
-		//if(htonl(tcp_hdr->sequence_num) >= f->seq_num){
-			process_downstream(f, offset, info);
-		//}//TODO: need to do something about replaying packets (maybe store previously sent data??
+		process_downstream(f, offset, info);
 
 
 #ifdef DEBUG2
@@ -316,13 +314,13 @@ int read_header(flow *f, struct packet_info *info){
 
 		if(i== 0){
 			//this is the Slitheen ID
-//#ifdef DEBUG
+#ifdef DEBUG
 			printf("Slitheen ID:");
 			for(int j=0; j< output_len; j++){
 				printf("%02x ", p[j]);
 			}
 			printf("\n");
-//#endif
+#endif
 
 			//find stream table or create new one
 
@@ -679,14 +677,14 @@ void *proxy_covert_site(void *data){
 			int32_t bytes_read = read(thread_data->pipefd, buffer, buffer_len);
 
 			if(bytes_read > 0){
-//#ifdef DEBUG
+#ifdef DEBUG
 				printf("PROXY (id %d): read %d bytes from pipe\n", stream_id, bytes_read);
 				for(int i=0; i< bytes_read; i++){
 					printf("%02x ", buffer[i]);
 				}
 				printf("\n");
 				printf("%s\n", buffer);
-//#endif
+#endif
 				bytes_sent = send(handle, buffer,
 						bytes_read, 0);
 				if( bytes_sent <= 0){
@@ -708,13 +706,15 @@ void *proxy_covert_site(void *data){
 			if(bytes_read > 0){
 				uint8_t *new_data = emalloc(bytes_read);
 				memcpy(new_data, buffer, bytes_read);
-//#ifdef DEBUG
+#ifdef DEBUG
 				printf("PROXY (id %d): read %d bytes from censored site\n",stream_id, bytes_read);
 				for(int i=0; i< bytes_read; i++){
 					printf("%02x ", buffer[i]);
 				}
 				printf("\n");
-//#endif
+
+	
+#endif
 
 				//make a new queue block
 				queue_block *new_block = emalloc(sizeof(queue_block));
@@ -915,6 +915,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 					f->outbox = emalloc(record_len+1);
 					f->outbox_len = record_len;
 					f->outbox_offset = 0;
+					printf("FILLED: mid content or mid chunk and could not decrypt\n");
 					fill_with_downstream(f, f->outbox + EVP_GCM_TLS_EXPLICIT_IV_LEN , record_len - (EVP_GCM_TLS_EXPLICIT_IV_LEN+ 16)); //for now hard coded length of padding. TODO: fix this
 					//encrypt
 					int32_t n = encrypt(f, f->outbox, f->outbox,
@@ -976,6 +977,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 		printf("\n");
 		printf("Text:\n");
 		printf("%s\n", record_ptr+EVP_GCM_TLS_EXPLICIT_IV_LEN);
+		fflush(stdout);
 #endif
 
 		p += EVP_GCM_TLS_EXPLICIT_IV_LEN;
@@ -1003,11 +1005,16 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 						f->replace_response = 0;
 					}
 
+					//check for 200 OK message
+					len_ptr = strstr((const char *) p, "200 OK");
+					if(len_ptr == NULL){
+						f->replace_response = 0;
+					}
+
 					len_ptr = strstr((const char *) p, "Transfer-Encoding");
 					if(len_ptr != NULL){
 						if(!memcmp(len_ptr + 19, "chunked", 7)){
 							//now find end of header
-							//printf("chunked encoding\n");
 							
 							len_ptr = strstr((const char *) p, "\r\n\r\n");
 							if(len_ptr != NULL){
@@ -1021,19 +1028,28 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 						if(len_ptr != NULL){
 							len_ptr += 15;
 							f->remaining_response_len = strtol((const char *) len_ptr, NULL, 10);
-							//printf("content-length: %d\n", f->remaining_response_len);
+#ifdef RESOURCE_DEBUG
+							printf("content-length: %d\n", f->remaining_response_len);
+#endif
 							len_ptr = strstr((const char *) p, "\r\n\r\n");
 							if(len_ptr != NULL){
 								f->httpstate = MID_CONTENT;
 								remaining_record_len -= (((uint8_t *)len_ptr - p) + 4);
 								p = (uint8_t *) len_ptr + 4;
+#ifdef RESOURCE_DEBUG
+								printf("Remaining record len: %d\n", remaining_record_len);
+#endif
 							} else {
 								remaining_record_len = 0;
-								//printf("Missing end of header. Sending to FORFEIT_REST\n");
+#ifdef RESOURCE_DEBUG
+								printf("Missing end of header. Sending to FORFEIT_REST\n");
+#endif
 								f->httpstate = FORFEIT_REST;
 							}
 						} else {
-							//printf("No content length of transfer encoding field, sending to FORFEIT_REST\n");
+#ifdef RESOURCE_DEBUG
+							printf("No content length of transfer encoding field, sending to FORFEIT_REST\n");
+#endif
 							f->httpstate = FORFEIT_REST;
 							remaining_record_len = 0;
 						}
@@ -1094,7 +1110,6 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 						p = (uint8_t *) needle + 2;
 					} else {
 						remaining_record_len = 0;
-						printf("Couldn't find chunk, sending to FORFEIT_REST\n");
 						f->httpstate = FORFEIT_REST;
 					}
 					}
@@ -1177,6 +1192,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 		if((n = encrypt(f, record_ptr, record_ptr,
 						n + EVP_GCM_TLS_EXPLICIT_IV_LEN, 1, record_hdr->type,
 						1)) < 0){
+			printf("UH OH, failed to re-encrypt record\n");
 			if(f->partial_record_header_len > 0){
 				f->partial_record_header_len = 0;
 				free(f->partial_record_header);
@@ -1219,7 +1235,6 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 	data_queue *downstream_queue = f->downstream_queue;
 	client *client_ptr = f->client_ptr;
 
-	printf("Filling with %d bytes\n", length);
 
 	//Fill as much as we can from the censored_queue
 	//Note: need enough for the header and one block of data (16 byte IV, 16 byte
@@ -1229,8 +1244,6 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 		//amount of data we'll actualy fill with (16 byte IV and 16 byte MAC)
 		int32_t fill_amount = remaining - SLITHEEN_HEADER_LEN - 32;
 		fill_amount -= fill_amount % 16; //rounded down to nearest block size
-
-		printf("Fill amount: %d\n", fill_amount);
 
 		queue_block *first_block = downstream_queue->first_block;
 		int32_t block_length = first_block->len;
@@ -1259,10 +1272,12 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 		if(block_length > offset + fill_amount){
 			//use part of the block, update offset
 			memcpy(p, first_block->data+offset, fill_amount);
+
 			first_block->offset += fill_amount;
 			p += fill_amount;
 			sl_hdr->len = fill_amount;
 			remaining -= fill_amount;
+
 		} else {
 			//use all of the block and free it
 			memcpy(p, first_block->data+offset, block_length - offset);
@@ -1285,13 +1300,11 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 			p += padding;
 		}
 
-		printf("Filled with %d bytes\n", sl_hdr->len);
 		p += 16;
 		remaining -= 16;
 
 		//fill rest of packet with padding, if needed
 		if(remaining < SLITHEEN_HEADER_LEN){
-			printf("Padding with %d garbage bytes\n", remaining);
 			RAND_bytes(p, remaining);
 			sl_hdr->garbage = htons(remaining);
 			p += remaining;
@@ -1305,7 +1318,7 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 		super_encrypt(client_ptr, encrypted_data, data_len + padding);
 
 
-//#ifdef DEBUG
+#ifdef DEBUG
 		printf("DWNSTRM: slitheen header: ");
 		for(int i=0; i< SLITHEEN_HEADER_LEN; i++){
 			printf("%02x ",((uint8_t *) sl_hdr)[i]);
@@ -1316,7 +1329,7 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 			printf("%02x ", ((uint8_t *) sl_hdr)[i+SLITHEEN_HEADER_LEN]);
 		}
 		printf("\n");
-//#endif
+#endif
 	}
 	//now, if we need more data, fill with garbage
 	if(remaining >= SLITHEEN_HEADER_LEN ){
@@ -1329,13 +1342,13 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 		sl_hdr->garbage = htons(remaining);
 		sl_hdr->zeros = 0x0000;
 
-//#ifdef DEBUG
+#ifdef DEBUG
 		printf("DWNSTRM: slitheen header: ");
 		for(int i=0; i< SLITHEEN_HEADER_LEN; i++){
 			printf("%02x ", p[i]);
 		}
 		printf("\n");
-//#endif
+#endif
 
 		//encrypt slitheen header
 		super_encrypt(client_ptr, p, 0);
@@ -1344,7 +1357,6 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 		RAND_bytes(p, remaining);
 	} else if(remaining > 0){
 		//fill with random data
-		printf("UH OH! Less than 16 bytes remaining, had to fill with random\n");
 		RAND_bytes(p, remaining);
 	}
 

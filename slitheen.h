@@ -71,7 +71,7 @@ struct packet_info {
 	uint32_t size_ip_hdr;
 
 	uint8_t *app_data;
-	uint32_t app_data_len;
+	uint16_t app_data_len;
 };
 
 struct __attribute__((__packed__)) slitheen_header {

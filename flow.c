@@ -68,8 +68,13 @@ flow *add_flow(struct packet_info *info) {
 	new_flow->src_port = info->tcp_hdr->src_port;
 	new_flow->dst_port = info->tcp_hdr->dst_port;
 
+	new_flow->upstream_app_data = emalloc(sizeof(app_data_queue));
+	new_flow->upstream_app_data->first_packet = NULL;
+	new_flow->downstream_app_data = emalloc(sizeof(app_data_queue));
+	new_flow->downstream_app_data->first_packet = NULL;
+
 	new_flow->upstream_seq_num = ntohl(info->tcp_hdr->sequence_num);
-	new_flow->downstream_seq_num = 0;
+	new_flow->downstream_seq_num = ntohl(info->tcp_hdr->ack_num);
 
 	new_flow->streams=NULL;
 	new_flow->downstream_queue=NULL;
@@ -168,14 +173,14 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 			p += RECORD_HEADER_LEN;
 
 			if((incoming && f->in_encrypted) || (!incoming && f->out_encrypted)){
-//#ifdef DEBUG_HS
+#ifdef DEBUG_HS
 				printf("Decrypting finished (%d bytes) (%x:%d -> %x:%d)\n", record_len - RECORD_HEADER_LEN, f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port));
 				printf("Finished ciphertext:\n");
 				for(int i=0; i< record_len; i++){
 					printf("%02x ", record[i]);
 				}
 				printf("\n");
-//#endif
+#endif
 				int32_t n = encrypt(f, p, p, record_len - RECORD_HEADER_LEN, incoming, 0x16, 0);
 				if(n<=0){
 					printf("Error decrypting finished  (%x:%d -> %x:%d)\n", f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port));
@@ -360,11 +365,13 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 
 						int32_t n =  encrypt(f, record+RECORD_HEADER_LEN, record+RECORD_HEADER_LEN, record_len - (RECORD_HEADER_LEN+16), incoming, 0x16, 1);
 
+#ifdef HS_DEBUG
 						printf("New finished ciphertext:\n");
 						for(int i=0; i< record_len; i++){
 							printf("%02x ", record[i]);
 						}
 						printf("\n");
+#endif
 
 						if(n<=0){
 							printf("Error re-encrypting finished  (%x:%d -> %x:%d)\n", f->src_ip.s_addr, ntohs(f->src_port),
@@ -443,11 +450,28 @@ err:
  */
 int remove_flow(flow *f) {
 
+	//Empty application data queues
+	packet *tmp = f->upstream_app_data->first_packet;
+	while(tmp != NULL){
+		f->upstream_app_data->first_packet = tmp->next;
+		free(tmp->data);
+		free(tmp);
+		tmp = f->upstream_app_data->first_packet;
+	}
+
+	tmp = f->downstream_app_data->first_packet;
+	while(tmp != NULL){
+		f->downstream_app_data->first_packet = tmp->next;
+		free(tmp->data);
+		free(tmp);
+		tmp = f->downstream_app_data->first_packet;
+	}
+
+	//Clean up cipher ctxs
 	EVP_MD_CTX_cleanup(f->finish_md_ctx);
 	if(f->finish_md_ctx != NULL){
 		EVP_MD_CTX_destroy(f->finish_md_ctx);
 	}
-	//Clean up cipher ctxs
 	if(f->clnt_read_ctx != NULL){
 		EVP_CIPHER_CTX_cleanup(f->clnt_read_ctx);
 		OPENSSL_free(f->clnt_read_ctx);
@@ -1053,7 +1077,8 @@ int add_packet(flow *f, struct packet_info *info){
 
 						//check to see if last finished message received
 						if(f->application ==1){
-							//TODO: replace finish message hash
+
+#ifdef DEBUG
 							printf("Replacing info->data with finished message (%d bytes).\n", info_len);
 
 							printf("Previous bytes:\n");
@@ -1066,18 +1091,20 @@ int add_packet(flow *f, struct packet_info *info){
 								printf("%02x ", record[record_offset+i]);
 							}
 							printf("\n");
-
 							printf("SLITHEEN: Previous packet contents:\n");
 							for(int i=0; i< info->app_data_len; i++){
 								printf("%02x ", info->app_data[i]);
 							}
 							printf("\n");
+#endif
 							memcpy(info->app_data+info_offset, record+record_offset, info_len);
+#ifdef DEBUG
 							printf("SLITHEEN: Current packet contents:\n");
 							for(int i=0; i< info->app_data_len; i++){
 								printf("%02x ", info->app_data[i]);
 							}
 							printf("\n");
+#endif
 
 							//update TCP checksum
 							tcp_checksum(info);
@@ -1086,7 +1113,6 @@ int add_packet(flow *f, struct packet_info *info){
 
 						if(new_packet != NULL){
 							info_offset += info_len;
-							printf("updating info_offset to %d.\n", info_offset);
 						}
 
 					}
