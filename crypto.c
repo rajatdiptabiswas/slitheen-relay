@@ -419,6 +419,8 @@ int verify_finish_hash(flow *f, uint8_t *hs, int32_t incoming){
 		//replace existing MAC with modified one
 		memcpy(p, output, fin_length);
 
+		free(extra_input);
+
 	}
 
 	free(output);
@@ -639,7 +641,7 @@ err:
 	if((pub_key != NULL) && (dh_srvr == NULL)){
 		BN_free(pub_key);
 	}
-	if((priv_key != NULL) && (dh_clnt == NULL) && (EC_KEY_get0_private_key(clnt_ecdh) == NULL)){
+	if((priv_key != NULL) && ((dh_clnt == NULL) || (EC_KEY_get0_private_key(clnt_ecdh) == NULL))){
 		BN_free(priv_key);
 	}
 
@@ -875,8 +877,7 @@ int init_ciphers(flow *f){
 	if(c == NULL){
 		/*This *shouldn't* happen, but might if a serverHello msg isn't received
 		 * or if a session is resumed in a strange way */
-		remove_flow(f);
-		return 0;
+		return 1;
 	}
 
 	/* Generate Keys */
@@ -1140,8 +1141,10 @@ void generate_client_super_keys(uint8_t *secret, client *c){
 
 int super_encrypt(client *c, uint8_t *data, uint32_t len){
 
-	EVP_CIPHER_CTX *hdr_ctx;
-	EVP_CIPHER_CTX *bdy_ctx;
+	int retval = 1;
+
+	EVP_CIPHER_CTX *hdr_ctx = NULL;
+	EVP_CIPHER_CTX *bdy_ctx = NULL;
 	
 	int32_t out_len;
 	size_t mac_len;
@@ -1164,7 +1167,8 @@ int super_encrypt(client *c, uint8_t *data, uint32_t len){
 	
 	if(!EVP_CipherUpdate(hdr_ctx, p, &out_len, p, SLITHEEN_HEADER_LEN)){
 		printf("Failed!\n");
-		return 0;
+		retval = 0;
+		goto end;
 	}
 
 #ifdef DEBUG
@@ -1176,7 +1180,8 @@ int super_encrypt(client *c, uint8_t *data, uint32_t len){
 #endif
 
 	if(len == 0){ //only encrypt header: body contains garbage bytes
-		return 1;
+		retval = 1;
+		goto end;
 	}
 
 	//encrypt the body
@@ -1202,7 +1207,8 @@ int super_encrypt(client *c, uint8_t *data, uint32_t len){
 
 	if(!EVP_CipherUpdate(bdy_ctx, p, &out_len, p, len)){
 		printf("Failed!\n");
-		return 0;
+		goto end;
+		retval = 0;
 	}
 
 #ifdef DEBUG
@@ -1215,17 +1221,40 @@ int super_encrypt(client *c, uint8_t *data, uint32_t len){
 #endif
 	
 	//MAC at the end
-	EVP_DigestSignUpdate(c->mac_ctx, p, out_len);
+	EVP_MD_CTX mac_ctx;
+	EVP_MD_CTX_init(&mac_ctx);
 
-	EVP_DigestSignFinal(c->mac_ctx, output, &mac_len);
+	EVP_MD_CTX_copy_ex(&mac_ctx, c->mac_ctx);
+
+	EVP_DigestSignUpdate(&mac_ctx, p, out_len);
+
+	EVP_DigestSignFinal(&mac_ctx, output, &mac_len);
+
+	EVP_MD_CTX_cleanup(&mac_ctx);
 
 	p += out_len;
 	memcpy(p, output, 16);
 
-	EVP_CIPHER_CTX_free(bdy_ctx);
-	EVP_CIPHER_CTX_free(hdr_ctx);
+#ifdef DEBUG_PARSE
+    printf("Computed mac:\n");
+    for(int i=0; i< 16; i++){
+        printf("%02x ", output[i]);
+    }   
+    printf("\n");
+    fflush(stdout);
+#endif
 
-	return 1;
+end:
+	if(hdr_ctx != NULL){
+		EVP_CIPHER_CTX_cleanup(hdr_ctx);
+		OPENSSL_free(hdr_ctx);
+	}
+	if(bdy_ctx != NULL){
+		EVP_CIPHER_CTX_cleanup(bdy_ctx);
+		OPENSSL_free(bdy_ctx);
+	}
+
+	return retval;
 }
 
 /** Checks a handshake message to see if it is tagged or a

@@ -172,7 +172,7 @@ int read_header(flow *f, struct packet_info *info){
 		//check to see if the new record is too long
 		record_hdr = (struct record_header*) p;
 		record_length = RECORD_LEN(record_hdr);
-		if(record_length > info->app_data_len){
+		if(record_length + RECORD_HEADER_LEN > info->app_data_len){
 
 			//add info to upstream queue
 			queue_block *new_block = emalloc(sizeof(queue_block));
@@ -182,7 +182,6 @@ int read_header(flow *f, struct packet_info *info){
 			memcpy(block_data, p, info->app_data_len);
 
 			new_block->len = info->app_data_len;
-			new_block->offset = record_length; //re-appropriate this for len of record
 			new_block->data = block_data;
 			new_block->next = NULL;
 

@@ -121,6 +121,7 @@ flow *add_flow(struct packet_info *info) {
 	const EVP_MD *md = EVP_sha384();
 	EVP_DigestInit_ex(new_flow->finish_md_ctx, md, NULL);
 
+	new_flow->cipher = NULL;
 	new_flow->clnt_read_ctx = NULL;
 	new_flow->clnt_write_ctx = NULL;
 	new_flow->srvr_read_ctx = NULL;
@@ -389,7 +390,6 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 					printf("Error? (%x:%d -> %x:%d)...\n", f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port));
 					remove_flow(f);
 					goto err;
-					break;
 			}
 			break;
 		case APP:
@@ -431,6 +431,7 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 		default:
 			printf("Error: Not a Record (%x:%d -> %x:%d)\n", f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port));
 			fflush(stdout);
+			remove_flow(f);
 			goto err;
 	}
 	return 0;
@@ -458,6 +459,7 @@ int remove_flow(flow *f) {
 		free(tmp);
 		tmp = f->upstream_app_data->first_packet;
 	}
+	free(f->upstream_app_data);
 
 	tmp = f->downstream_app_data->first_packet;
 	while(tmp != NULL){
@@ -466,6 +468,7 @@ int remove_flow(flow *f) {
 		free(tmp);
 		tmp = f->downstream_app_data->first_packet;
 	}
+	free(f->downstream_app_data);
 
 	//Clean up cipher ctxs
 	EVP_MD_CTX_cleanup(f->finish_md_ctx);
@@ -1073,7 +1076,10 @@ int add_packet(flow *f, struct packet_info *info){
 						free(copy_info->app_data);
 						free(copy_info);
 					} else {
-						update_flow(f, record, incoming);
+						if(update_flow(f, record, incoming)){
+							free(record);
+							return 1;//error occurred and flow was removed
+						}
 
 						//check to see if last finished message received
 						if(f->application ==1){

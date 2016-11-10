@@ -282,8 +282,8 @@ void process_packet(struct packet_info *info){
 						data_to_fill -= data_to_fill;
 					} else {
 						p += saved_data->seq_num - seq_num;
-						seq_num += saved_data->seq_num - seq_num;
 						data_to_fill -= saved_data->seq_num - seq_num;
+						seq_num += saved_data->seq_num - seq_num;
 					}
 				} else if ( seq_num == saved_data->seq_num) {
 
@@ -329,6 +329,8 @@ void process_packet(struct packet_info *info){
 
 		if(data_to_process){
 
+			uint8_t removed = 0;
+
 			if(p != info->app_data){
 				printf("UH OH something weird might happen\n");
 			}
@@ -338,7 +340,9 @@ void process_packet(struct packet_info *info){
 			} else {
 
 				/* Pass data to packet chain */
-				add_packet(observed, info);
+				if(add_packet(observed, info)){//removed_flow
+					removed = 1;
+				}
 			}
 
 			/* Update TCP state */
@@ -347,6 +351,11 @@ void process_packet(struct packet_info *info){
 				remove_flow(observed);
 			} else {
 				/* add packet to application data queue */
+
+				//check if flow was removed
+				if(removed){
+					return;
+				}
 
 				//add new app block
 				packet *new_block = ecalloc(1, sizeof(packet));
