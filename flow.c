@@ -899,7 +899,7 @@ int save_session_ticket(flow *f, uint8_t *hs, uint32_t len){
 	printf("\n");
 #endif
 	uint8_t *p = hs + HANDSHAKE_HEADER_LEN;
-	p += 4; //skip lifetime TODO: add to session struct
+	p += 4;
 	session *new_session = ecalloc(1, sizeof(session));
 
 	new_session->session_id_len = 0;
@@ -1065,7 +1065,7 @@ int add_packet(flow *f, struct packet_info *info){
 						}
 					}
 					//if handshake is complete, send to relay code
-					//TODO: check to see if this code needs to replace info->data
+					
 					if(f->application == 1){
 						//update packet info and send to replace_packet
 						printf("Packet contains application data!\n");

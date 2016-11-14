@@ -88,7 +88,7 @@ typedef struct flow_st {
 	struct in_addr src_ip, dst_ip; /* Source (client) and Destination (server) addresses */
 	uint16_t src_port, dst_port;	/* Source and Destination ports */
 
-	uint32_t upstream_seq_num;		/* sequence number TODO: are these used?*/
+	uint32_t upstream_seq_num;		/* sequence number */
 	uint32_t downstream_seq_num;		/* sequence number */
 
 	app_data_queue *upstream_app_data;	/* Saved application-layer data for packet retransmits */

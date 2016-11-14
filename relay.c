@@ -328,7 +328,7 @@ int read_header(flow *f, struct packet_info *info){
 				if(!memcmp(last->slitheen_id, p, output_len)){
 					f->streams = last->streams;
 					f->downstream_queue = last->downstream_queue;
-					f->client_ptr = last; //TODO: clean this up
+					f->client_ptr = last; 
 					break;
 #ifdef DEBUG
 				} else {
@@ -375,7 +375,7 @@ int read_header(flow *f, struct packet_info *info){
 				}
 				
 				//set f's stream table
-				f->client_ptr = new_client; //TODO: slim down f 
+				f->client_ptr = new_client;
 				f->streams = new_client->streams;
 				f->downstream_queue = new_client->downstream_queue;
 
@@ -915,7 +915,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 					f->outbox_len = record_len;
 					f->outbox_offset = 0;
 					printf("FILLED: mid content or mid chunk and could not decrypt\n");
-					fill_with_downstream(f, f->outbox + EVP_GCM_TLS_EXPLICIT_IV_LEN , record_len - (EVP_GCM_TLS_EXPLICIT_IV_LEN+ 16)); //for now hard coded length of padding. TODO: fix this
+					fill_with_downstream(f, f->outbox + EVP_GCM_TLS_EXPLICIT_IV_LEN , record_len - (EVP_GCM_TLS_EXPLICIT_IV_LEN+ 16));
 					//encrypt
 					int32_t n = encrypt(f, f->outbox, f->outbox,
 									record_len - 16, 1,
@@ -1224,7 +1224,6 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
  *  	length: The length of the downstream data required
  *
  */
-//TODO: change hard-coded values to depend on cipher
 int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 
 	uint8_t *p = data;
