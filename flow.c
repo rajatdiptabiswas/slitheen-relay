@@ -1082,7 +1082,7 @@ int add_packet(flow *f, struct packet_info *info){
 						}
 
 						//check to see if last finished message received
-						if(f->application ==1){
+						if(f->in_encrypted ==2){
 
 #ifdef DEBUG
 							printf("Replacing info->data with finished message (%d bytes).\n", info_len);
