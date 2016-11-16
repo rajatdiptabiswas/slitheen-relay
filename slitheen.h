@@ -4,11 +4,10 @@
 #include <netinet/in.h>
 #include <pcap.h>
 
-#define macaddr1 "00:25:90:5a:26:99"
-#define macaddr2 "00:25:90:c9:5a:09"
+//#define macaddr1 "00:25:90:5a:26:99"
+//#define macaddr2 "00:25:90:c9:5a:09"
 
-//#define macaddr1 "08:00:27:0e:89:ea"
-//#define macaddr2 "08:00:27:0e:89:ea"
+#define macaddr "08:00:27:0e:89:ea"
 
 /* Ethernet addresses are 6 bytes */
 #define ETHER_ADDR_LEN	6

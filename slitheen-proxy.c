@@ -43,8 +43,8 @@ int main(int argc, char *argv[]){
 	dev1 = argv[1];
 	dev2 = argv[2];
 
-	snprintf(filter1, 33, "ether src host %s", macaddr1);
-	snprintf(filter2, 33, "ether src host %s", macaddr2);
+	snprintf(filter1, 33, "ether src host %s", macaddr);
+	snprintf(filter2, 33, "ether dst host %s", macaddr);
 
 	if(init_tables()){
 		exit(1);
