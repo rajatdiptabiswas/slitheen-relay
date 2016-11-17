@@ -353,31 +353,24 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 #endif
 					verify_finish_hash(f,p, incoming);
 					
-					if(update_finish_hash(f, p)){
-						fprintf(stderr, "Error updating finish hash with FINISHED msg\n");
-						remove_flow(f);
-						goto err;
-					}
-
 					//re-encrypt finished message
-					if(incoming){
-						//revert the sequence number
-						memset(f->read_seq, 0, 8);
 
-						int32_t n =  encrypt(f, record+RECORD_HEADER_LEN, record+RECORD_HEADER_LEN, record_len - (RECORD_HEADER_LEN+16), incoming, 0x16, 1);
+					//revert the sequence number
+					memset(f->read_seq, 0, 8);
+
+					int32_t n =  encrypt(f, record+RECORD_HEADER_LEN, record+RECORD_HEADER_LEN, record_len - (RECORD_HEADER_LEN+16), incoming, 0x16, 1);
 
 #ifdef HS_DEBUG
-						printf("New finished ciphertext:\n");
-						for(int i=0; i< record_len; i++){
-							printf("%02x ", record[i]);
-						}
-						printf("\n");
+					printf("New finished ciphertext:\n");
+					for(int i=0; i< record_len; i++){
+						printf("%02x ", record[i]);
+					}
+					printf("\n");
 #endif
 
-						if(n<=0){
-							printf("Error re-encrypting finished  (%x:%d -> %x:%d)\n", f->src_ip.s_addr, ntohs(f->src_port),
-									f->dst_ip.s_addr, ntohs(f->dst_port));
-						}
+					if(n<=0){
+						printf("Error re-encrypting finished  (%x:%d -> %x:%d)\n", f->src_ip.s_addr, ntohs(f->src_port),
+								f->dst_ip.s_addr, ntohs(f->dst_port));
 					}
 
 					if((f->in_encrypted == 2) && (f->out_encrypted == 2)){
@@ -585,11 +578,7 @@ int remove_flow(flow *f) {
  *  	observed: details for the observed flow
  *
  *  Output:
- *  	index of flow in table or -1 if it doesn't exist
-	new_flow->src_ip = info->ip_hdr->src;
-	new_flow->dst_ip = info->ip_hdr->dst;
-	new_flow->src_port = info->tcp_hdr->src_port;
-	new_flow->dst_port = info->tcp_hdr->dst_port;
+ *  	flow struct from table or NULL if it doesn't exist
  */
 flow *check_flow(struct packet_info *info){
 	/* Loop through flows in table and see if it exists */
@@ -1068,7 +1057,6 @@ int add_packet(flow *f, struct packet_info *info){
 					
 					if(f->application == 1){
 						//update packet info and send to replace_packet
-						printf("Packet contains application data!\n");
 						struct packet_info *copy_info = copy_packet_info(info);
 						copy_info->app_data = record;
 						copy_info->app_data_len = record_len;

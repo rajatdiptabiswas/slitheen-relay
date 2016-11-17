@@ -494,6 +494,12 @@ int verify_finish_hash(flow *f, uint8_t *hs, int32_t incoming){
 	struct handshake_header *hs_hdr;
 	hs_hdr = (struct handshake_header*) p;
 	uint32_t fin_length = HANDSHAKE_MESSAGE_LEN(hs_hdr);
+
+	//save old finished to update finished mac hash
+	uint8_t *old_finished = ecalloc(1, fin_length);
+	old_finished = malloc(fin_length+ HANDSHAKE_HEADER_LEN);
+	memcpy(old_finished, p, fin_length+HANDSHAKE_HEADER_LEN);
+	
 	p += HANDSHAKE_HEADER_LEN;
 
 	//finalize hash of handshake msgs (have not yet added this one)
@@ -514,6 +520,14 @@ int verify_finish_hash(flow *f, uint8_t *hs, int32_t incoming){
 		printf("VERIFY FAILED\n");
 		goto err;
 	}
+
+#ifdef DEBUG_HS
+	printf("Old finished:\n");
+	for(int i=0; i< fin_length; i++){
+		printf("%02x ", p[i]);
+	}
+	printf("\n");
+#endif
 
 	//now add extra input seeded with client-relay shared secret
 	if(incoming){
@@ -538,9 +552,25 @@ int verify_finish_hash(flow *f, uint8_t *hs, int32_t incoming){
 		//replace existing MAC with modified one
 		memcpy(p, output, fin_length);
 
+#ifdef DEBUG_HS
+		printf("New finished:\n");
+		for(int i=0; i< fin_length; i++){
+			printf("%02x ", p[i]);
+		}
+		printf("\n");
+#endif
+
 		free(extra_input);
 
 	}
+
+	if(update_finish_hash(f, old_finished)){
+		fprintf(stderr, "Error updating finish hash with FINISHED msg\n");
+		remove_flow(f);
+		goto err;
+	}
+
+	free(old_finished);
 
 	free(output);
 	EVP_MD_CTX_cleanup(&ctx);
@@ -549,6 +579,8 @@ int verify_finish_hash(flow *f, uint8_t *hs, int32_t incoming){
 err:
 	if(output != NULL)
 		free(output);
+	if(old_finished != NULL)
+		free(old_finished);
 	EVP_MD_CTX_cleanup(&ctx);
 	return 1;
 }
