@@ -496,8 +496,7 @@ int verify_finish_hash(flow *f, uint8_t *hs, int32_t incoming){
 	uint32_t fin_length = HANDSHAKE_MESSAGE_LEN(hs_hdr);
 
 	//save old finished to update finished mac hash
-	uint8_t *old_finished = ecalloc(1, fin_length);
-	old_finished = malloc(fin_length+ HANDSHAKE_HEADER_LEN);
+	uint8_t *old_finished = emalloc(fin_length+ HANDSHAKE_HEADER_LEN);
 	memcpy(old_finished, p, fin_length+HANDSHAKE_HEADER_LEN);
 	
 	p += HANDSHAKE_HEADER_LEN;

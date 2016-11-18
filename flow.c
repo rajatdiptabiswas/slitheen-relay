@@ -356,7 +356,10 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 					//re-encrypt finished message
 
 					//revert the sequence number
-					memset(f->read_seq, 0, 8);
+					if(incoming)
+						memset(f->read_seq, 0, 8);
+					else 
+						memset(f->write_seq, 0, 8);
 
 					int32_t n =  encrypt(f, record+RECORD_HEADER_LEN, record+RECORD_HEADER_LEN, record_len - (RECORD_HEADER_LEN+16), incoming, 0x16, 1);
 

@@ -433,6 +433,7 @@ int read_header(flow *f, struct packet_info *info){
 				}
 #ifdef DEBUG
 				printf("Found stream id %d\n", last->stream_id);
+				printf("Writing %d bytes to pipe\n", stream_len);
 #endif
 				int32_t bytes_sent = write(stream_pipe, p, stream_len);
 				if(bytes_sent < 0){
@@ -595,41 +596,6 @@ void *proxy_covert_site(void *data){
     }
 
 	getsockname(handle, (struct sockaddr *) &my_addr, &my_addr_len);
-
-#ifdef OLD
-	uint8_t *response = emalloc(11);
-	//now send the reply to the client
-	response[0] = 0x05;
-	response[1] = 0x00;
-	response[2] = 0x00;
-	response[3] = 0x01;
-	*((uint32_t *) (response + 4)) = my_addr.sin_addr.s_addr;
-	*((uint16_t *) (response + 8)) = my_addr.sin_port;
-
-	printf("Downstream response (id %d):\n", stream_id);
-	for(int i=0; i< 10; i++){
-		printf("%02x ", response[i]);
-	}
-	printf("\n");
-	fflush(stdout);
-
-	//No longer need to send response
-	queue_block *new_block = emalloc(sizeof(queue_block));
-	new_block->len = 10;
-	new_block->offset = 0;
-	new_block->data = response;
-	new_block->next = NULL;
-	new_block->stream_id = stream_id;
-	if(downstream_queue->first_block == NULL){
-		downstream_queue->first_block = new_block;
-	}
-	else{
-		queue_block *last = downstream_queue->first_block;
-		while(last->next != NULL)
-			last = last->next;
-		last->next = new_block;
-	}
-#endif
 
 	//see if there were extra upstream bytes
 	if(data_len > 0){
@@ -884,10 +850,10 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 		uint32_t record_len = RECORD_LEN(record_hdr);
 
 #ifdef DEBUG
-	fprintf(stdout,"Flow: %x > %x (%s)\n", info->ip_hdr->src.s_addr, info->ip_hdr->dst.s_addr, (info->ip_hdr->src.s_addr != f->src_ip.s_addr)? "incoming":"outgoing");
-	fprintf(stdout,"ID number: %u\n", htonl(info->ip_hdr->id));
-	fprintf(stdout,"Sequence number: %u\n", htonl(info->tcp_hdr->sequence_num));
-	fprintf(stdout,"Acknowledgement number: %u\n", htonl(info->tcp_hdr->ack_num));
+		fprintf(stdout,"Flow: %x > %x (%s)\n", info->ip_hdr->src.s_addr, info->ip_hdr->dst.s_addr, (info->ip_hdr->src.s_addr != f->src_ip.s_addr)? "incoming":"outgoing");
+		fprintf(stdout,"ID number: %u\n", htonl(info->ip_hdr->id));
+		fprintf(stdout,"Sequence number: %u\n", htonl(info->tcp_hdr->sequence_num));
+		fprintf(stdout,"Acknowledgement number: %u\n", htonl(info->tcp_hdr->ack_num));
 		fprintf(stdout, "Record:\n");
 		for(int i=0; i< RECORD_HEADER_LEN; i++){
 			printf("%02x ", ((uint8_t *) record_hdr)[i]);
@@ -909,7 +875,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 			} else if( f->httpstate == MID_CONTENT || f->httpstate == MID_CHUNK){
 				f->remaining_response_len -= record_len - 24; //len of IV and padding
 				if(f->remaining_response_len >= 0 && f->replace_response){
-//#ifdef nothing
+
 					//make a huge record, encrypt it, and then place it in the outbox
 					f->outbox = emalloc(record_len+1);
 					f->outbox_len = record_len;
@@ -929,7 +895,6 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 						f->outbox_len -= remaining_packet_len;
 						f->outbox_offset += remaining_packet_len;
 					}
-//#endif
 
 				}
 
@@ -967,7 +932,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 		}
 		changed = 1;
 
-#ifdef DEBUG_DOWNSTREAM
+#ifdef DEBUG_DOWN
 		printf("Decryption succeeded\n");
 		printf("Bytes:\n");
 		for(int i=0; i< n; i++){
@@ -1062,7 +1027,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 						if(f->replace_response){
 							fill_with_downstream(f, p, remaining_record_len);
 
-#ifdef DEBUG
+#ifdef DEBUG_DOWN
 							printf("Replaced with:\n");
 							for(int i=0; i< remaining_record_len; i++){
 								printf("%02x ", p[i]);
@@ -1079,7 +1044,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 						if(f->replace_response){
 							fill_with_downstream(f, p, remaining_record_len);
 
-#ifdef DEBUG
+#ifdef DEBUG_DOWN
 							printf("Replaced with:\n");
 							for(int i=0; i< remaining_record_len; i++){
 								printf("%02x ", p[i]);
@@ -1119,7 +1084,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 						if(f->replace_response){
 							fill_with_downstream(f, p, remaining_record_len);
 
-#ifdef DEBUG
+#ifdef DEBUG_DOWN
 							printf("Replaced with:\n");
 							for(int i=0; i< remaining_record_len; i++){
 								printf("%02x ", p[i]);
@@ -1135,7 +1100,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 						if(f->replace_response){
 							fill_with_downstream(f, p, f->remaining_response_len);
 
-#ifdef DEBUG
+#ifdef DEBUG_DOWN
 							printf("Replaced with:\n");
 							for(int i=0; i< f->remaining_response_len; i++){
 								printf("%02x ", p[i]);
@@ -1187,6 +1152,18 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 
 			}
 		}
+#ifdef DEBUG_DOWN
+		if(changed){
+			printf("Resource is now\n");
+			printf("Bytes:\n");
+			for(int i=0; i< n; i++){
+				printf("%02x ", record_ptr[EVP_GCM_TLS_EXPLICIT_IV_LEN+i]);
+			}
+			printf("\n");
+			printf("Text:\n");
+			printf("%s\n", record_ptr+EVP_GCM_TLS_EXPLICIT_IV_LEN);
+			fflush(stdout);
+#endif
 
 		if((n = encrypt(f, record_ptr, record_ptr,
 						n + EVP_GCM_TLS_EXPLICIT_IV_LEN, 1, record_hdr->type,
@@ -1316,7 +1293,7 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 		super_encrypt(client_ptr, encrypted_data, data_len + padding);
 
 
-#ifdef DEBUG
+#ifdef DEBUG_DOWN
 		printf("DWNSTRM: slitheen header: ");
 		for(int i=0; i< SLITHEEN_HEADER_LEN; i++){
 			printf("%02x ",((uint8_t *) sl_hdr)[i]);
@@ -1340,7 +1317,7 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 		sl_hdr->garbage = htons(remaining);
 		sl_hdr->zeros = 0x0000;
 
-#ifdef DEBUG
+#ifdef DEBUG_DOWN
 		printf("DWNSTRM: slitheen header: ");
 		for(int i=0; i< SLITHEEN_HEADER_LEN; i++){
 			printf("%02x ", p[i]);
