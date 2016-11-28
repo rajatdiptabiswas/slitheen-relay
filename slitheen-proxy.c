@@ -207,31 +207,32 @@ void process_packet(struct packet_info *info){
 #endif
 
 
-		//remove acked data from opposite queue
+		/* Remove acknknowledged data from queue after TCP window is exceeded */
 		uint32_t ack_num = htonl(info->tcp_hdr->ack_num);
-		packet *saved_data = (incoming)? observed->upstream_app_data->first_packet :
-			observed->downstream_app_data->first_packet;
-		while((saved_data != NULL) &&(ack_num > saved_data->seq_num)){
-			//remove acked data
-			if(ack_num >= saved_data->seq_num + saved_data->len){
-				//remove entire block
-				if(incoming){
-					observed->upstream_app_data->first_packet = saved_data->next;
-				} else {
-					observed->downstream_app_data->first_packet = saved_data->next;
-				}
+		uint32_t end_seq = seq_num + info->app_data_len - 1;
+		uint32_t window = ack_num + htons(info->tcp_hdr->win_size);
 
-				free(saved_data->data);
-				free(saved_data);
-				saved_data = (incoming)? observed->upstream_app_data->first_packet :
-					observed->downstream_app_data->first_packet;
+#ifdef DEBUG
+		printf("Received sequence number %u\n", seq_num);
+		printf("Acknowledged up to %u with window expiring at %u\n", ack_num, window);
+		printf("Removing all packets up to %u\n", end_seq);
+#endif
+
+		packet *saved_data = (incoming)? observed->downstream_app_data->first_packet :
+			observed->upstream_app_data->first_packet;
+		while((saved_data != NULL) && (saved_data->expiration != 0) && (end_seq > saved_data->expiration)){
+			//remove entire block
+			if(incoming){
+				observed->downstream_app_data->first_packet = saved_data->next;
 			} else {
-				//remove partial block
-				uint32_t amt_acked = ack_num - saved_data->seq_num;
-				memmove(saved_data->data, saved_data->data+amt_acked, saved_data->len - amt_acked);
-				saved_data->len -= amt_acked;
-				saved_data->seq_num += amt_acked;
+				observed->upstream_app_data->first_packet = saved_data->next;
 			}
+
+			free(saved_data->data);
+			free(saved_data);
+			saved_data = (incoming)? observed->downstream_app_data->first_packet :
+				observed->upstream_app_data->first_packet;
+
 #ifdef DEBUG
 			if(saved_data != NULL){
 				printf("Currently saved seq_num is now %u\n", saved_data->seq_num);
@@ -240,6 +241,18 @@ void process_packet(struct packet_info *info){
 			}
 #endif
 
+		}
+
+		/* Update expiration for packets based on TCP window size */
+		saved_data = (incoming)? observed->upstream_app_data->first_packet :
+			observed->downstream_app_data->first_packet;
+		while((saved_data != NULL) && (ack_num > saved_data->seq_num)){
+			//update window
+			if(ack_num >= saved_data->seq_num + saved_data->len){
+				//remove entire block
+				saved_data->expiration = window;
+			}
+			saved_data = saved_data->next;
 		}
 
 		//fill with retransmit data, process new data
@@ -364,6 +377,7 @@ void process_packet(struct packet_info *info){
 				memcpy(new_block->data, info->app_data, info->app_data_len);
 				new_block->len = info->app_data_len;
 				new_block->next = NULL;
+				new_block->expiration = 0;
 
 				packet *saved_data = (incoming)? observed->downstream_app_data->first_packet :
 					observed->upstream_app_data->first_packet;

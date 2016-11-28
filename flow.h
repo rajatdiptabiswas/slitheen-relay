@@ -40,6 +40,7 @@ typedef struct packet_st{
 	uint32_t seq_num;
 	uint16_t len;
 	uint8_t *data;
+	uint32_t expiration;
 	struct packet_st *next;
 } packet;
 
