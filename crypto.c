@@ -533,10 +533,18 @@ int verify_finish_hash(flow *f, uint8_t *hs, int32_t incoming){
 		uint32_t extra_input_len = SSL3_RANDOM_SIZE;
 		uint8_t *extra_input = calloc(1, extra_input_len);
 
-		PRF(f, f->master_secret, SSL3_MASTER_SECRET_SIZE,
+		PRF(f, f->key, 16,
 			(uint8_t *) SLITHEEN_FINISHED_INPUT_CONST, SLITHEEN_FINISHED_INPUT_CONST_SIZE,
 			NULL, 0, NULL, 0, NULL, 0,
 			extra_input, extra_input_len);
+
+#ifdef DEBUG_HS
+		printf("Extra input:\n");
+		for(int i=0; i< extra_input_len; i++){
+			printf("%02x ", extra_input[i]);
+		}
+		printf("\n");
+#endif
 
 		EVP_MD_CTX_copy_ex(&ctx, f->finish_md_ctx);
 		EVP_DigestUpdate(&ctx, extra_input, extra_input_len);
