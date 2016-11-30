@@ -378,6 +378,7 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 
 					if((f->in_encrypted == 2) && (f->out_encrypted == 2)){
 						printf("Handshake complete!\n");
+						fflush(stdout);
 						f->application = 1;
 					}
 

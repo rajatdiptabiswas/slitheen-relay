@@ -11,12 +11,14 @@ struct proxy_thread_data {
 	int32_t pipefd;
 	stream_table *streams;
 	data_queue *downstream_queue;
+	client *client;
 };
 
 typedef struct client_st {
 	uint8_t slitheen_id[SLITHEEN_ID_LEN];
 	stream_table *streams;
 	data_queue *downstream_queue;
+	sem_t queue_lock;
 	uint16_t encryption_counter;
 	struct client_st *next;
 	uint8_t *header_key;
