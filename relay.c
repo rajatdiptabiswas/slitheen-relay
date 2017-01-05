@@ -121,7 +121,9 @@ int read_header(flow *f, struct packet_info *info){
 	uint32_t record_length;
 	if(f->upstream_remaining > 0){
 	//check to see whether the previous record has finished
+		printf("US: finishing previous record\n");
 		if(f->upstream_remaining > info->app_data_len){
+			printf("US: still need more\n");
 			//ignore entire packet for now
 			queue_block *new_block = emalloc(sizeof(queue_block));
 
@@ -206,8 +208,9 @@ int read_header(flow *f, struct packet_info *info){
 
 	memcpy(decrypted_data, p, record_length);
 
-	int32_t decrypted_len = encrypt(f, decrypted_data, decrypted_data, record_length, 0, record_hdr->type, 0);
+	int32_t decrypted_len = encrypt(f, decrypted_data, decrypted_data, record_length, 0, record_hdr->type, 0, 0);
 	if(decrypted_len<0){
+		printf("US: decryption failed!\n");
 		if(record_ptr != NULL)
 			free(record_ptr);
 		free(decrypted_data);
@@ -220,6 +223,8 @@ int read_header(flow *f, struct packet_info *info){
 			printf("%02x ", decrypted_data[i]);
 		}
 		fflush(stdout);
+
+		//TODO: re-encrypt and return
 	}
 
 #ifdef DEBUG
@@ -886,6 +891,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 			printf("%02x ", ((uint8_t *) record_hdr)[i]);
 		}
 		printf("\n");
+		fflush(stdout);
 #endif
 
 		p += (RECORD_HEADER_LEN - f->partial_record_header_len);
@@ -907,12 +913,12 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 					f->outbox = emalloc(record_len+1);
 					f->outbox_len = record_len;
 					f->outbox_offset = 0;
-					printf("FILLED: mid content or mid chunk and could not decrypt\n");
 					fill_with_downstream(f, f->outbox + EVP_GCM_TLS_EXPLICIT_IV_LEN , record_len - (EVP_GCM_TLS_EXPLICIT_IV_LEN+ 16));
-					//encrypt
+
+					//encrypt (not a re-encryption)
 					int32_t n = encrypt(f, f->outbox, f->outbox,
 									record_len - 16, 1,
-									record_hdr->type, 1);
+									record_hdr->type, 1, 0);
 					if(n < 0){
 						fprintf(stdout,"outbox encryption failed\n");
 					} else {
@@ -948,9 +954,10 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 
 		//now decrypt the record
 		int32_t n = encrypt(f, record_ptr, record_ptr, record_len, 1,
-						record_hdr->type, 0);
+						record_hdr->type, 0, 0);
 		if(n < 0){
 			//do something smarter here
+			printf("Decryption failed\n");
 			if(f->partial_record_header_len > 0){
 				f->partial_record_header_len = 0;
 				free(f->partial_record_header);
@@ -1190,11 +1197,12 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 			printf("Text:\n");
 			printf("%s\n", record_ptr+EVP_GCM_TLS_EXPLICIT_IV_LEN);
 			fflush(stdout);
+		}
 #endif
 
 		if((n = encrypt(f, record_ptr, record_ptr,
 						n + EVP_GCM_TLS_EXPLICIT_IV_LEN, 1, record_hdr->type,
-						1)) < 0){
+						1, 1)) < 0){
 			printf("UH OH, failed to re-encrypt record\n");
 			if(f->partial_record_header_len > 0){
 				f->partial_record_header_len = 0;
@@ -1236,7 +1244,6 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 
 	data_queue *downstream_queue = f->downstream_queue;
 	client *client_ptr = f->client_ptr;
-
 
 	//Fill as much as we can from the censored_queue
 	//Note: need enough for the header and one block of data (16 byte IV, 16 byte

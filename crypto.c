@@ -399,14 +399,16 @@ err:
  * 		incoming: the direction of the record
  * 		type: the type of the TLS record
  * 		enc: 1 for encryption, 0 for decryption
+ * 		re:	 1 if this is a re-encryption (counters are reset), 0 otherwise
+ * 			 Note: is only checked during encryption
  *
  * 	Output:
  * 		length of the output data
  */
-int encrypt(flow *f, uint8_t *input, uint8_t *output, int32_t len, int32_t incoming, int32_t type, int32_t enc){
+int encrypt(flow *f, uint8_t *input, uint8_t *output, int32_t len, int32_t incoming, int32_t type, int32_t enc, uint8_t re){
 	uint8_t *p = input;
 	
-	EVP_CIPHER_CTX *ds = (incoming) ? ((enc) ? f->srvr_write_ctx : f->clnt_read_ctx) : ((enc) ? f->clnt_write_ctx : f->srvr_read_ctx) ;
+	EVP_CIPHER_CTX *ds = (incoming) ? ((enc) ? f->srvr_write_ctx : f->clnt_read_ctx) : ((enc) ? f->clnt_write_ctx : f->srvr_read_ctx);
 	if(ds == NULL){
 		printf("FAIL\n");
 		return 1;
@@ -415,8 +417,15 @@ int encrypt(flow *f, uint8_t *input, uint8_t *output, int32_t len, int32_t incom
 	uint8_t *seq;
 	seq = (incoming) ? f->read_seq : f->write_seq;
 
+	if(enc && re){
+		for(int i=7; i>=0; i--){
+			--seq[i];
+			if(seq[i] != 0xff)
+				break;
+		}
+	}
+
 	if(f->application && (ds->iv[EVP_GCM_TLS_FIXED_IV_LEN] == 0)){
-		//printf("MERP\n");
 		//fill in rest of iv
 		for(int i = EVP_GCM_TLS_FIXED_IV_LEN; i< ds->cipher->iv_len; i++){
 			ds->iv[i] = p[i- EVP_GCM_TLS_FIXED_IV_LEN];
@@ -1159,30 +1168,6 @@ int init_ciphers(flow *f){
 
 	free(key_block);
 	return 0;
-}
-
-// To avoid warnings about MAC paddings, use this to update contexts
-void update_context(flow *f, uint8_t *input, int32_t len, int32_t incoming, int32_t type, int32_t enc){
-
-	uint8_t *output = ecalloc(1, len+16+8);
-
-	memcpy(output + EVP_GCM_TLS_EXPLICIT_IV_LEN, input, len);
-
-	//If the original message was a decryption, this will be an necryption.
-	//Incoming field stays the same
-	encrypt(f, output, output, len+8, incoming, type, !enc);
-
-	//revert the sequence number
-	uint8_t *seq = incoming ? f->read_seq : f->write_seq;
-	for(int i=7; i>=0; i--){
-		--seq[i];
-		if(seq[i] >= 0)
-			break;
-		else
-			seq[i] = 0;
-	}
-
-	free(output);
 }
 
 /* Generate the keys for a client's super encryption layer

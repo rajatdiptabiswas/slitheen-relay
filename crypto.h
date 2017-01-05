@@ -12,7 +12,7 @@
 
 
 int extract_parameters(flow *f, uint8_t *hs);
-int encrypt(flow *f, uint8_t *input, uint8_t *output, int32_t len, int32_t incoming, int32_t type, int32_t enc);
+int encrypt(flow *f, uint8_t *input, uint8_t *output, int32_t len, int32_t incoming, int32_t type, int32_t enc, uint8_t re);
 int extract_server_random(flow *f, uint8_t *hs);
 int compute_master_secret(flow *f);
 
@@ -26,7 +26,6 @@ int PRF(flow *f, uint8_t *secret, int32_t secret_len,
 int update_finish_hash(flow *f, uint8_t *hs);
 int verify_finish_hash(flow *f, uint8_t *p, int32_t incoming);
 int init_ciphers(flow *f);
-void update_context(flow *f, uint8_t *input, int32_t len, int32_t incoming, int32_t type, int32_t enc);
 void generate_client_super_keys(uint8_t *secret, client *c);
 int super_encrypt(client *c, uint8_t *data, uint32_t len);
 void check_handshake(struct packet_info *info);

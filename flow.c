@@ -182,7 +182,7 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 				}
 				printf("\n");
 #endif
-				int32_t n = encrypt(f, p, p, record_len - RECORD_HEADER_LEN, incoming, 0x16, 0);
+				int32_t n = encrypt(f, p, p, record_len - RECORD_HEADER_LEN, incoming, 0x16, 0, 0);
 				if(n<=0){
 					printf("Error decrypting finished  (%x:%d -> %x:%d)\n", f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port));
 				}
@@ -206,7 +206,6 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 					f->in_encrypted = 2;
 				} else {
 					f->out_encrypted = 2;
-					update_context(f, p, n, incoming, 0x16, 0);
 				}
 
 			}
@@ -354,14 +353,7 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 					verify_finish_hash(f,p, incoming);
 					
 					//re-encrypt finished message
-
-					//revert the sequence number
-					if(incoming)
-						memset(f->read_seq, 0, 8);
-					else 
-						memset(f->write_seq, 0, 8);
-
-					int32_t n =  encrypt(f, record+RECORD_HEADER_LEN, record+RECORD_HEADER_LEN, record_len - (RECORD_HEADER_LEN+16), incoming, 0x16, 1);
+					int32_t n =  encrypt(f, record+RECORD_HEADER_LEN, record+RECORD_HEADER_LEN, record_len - (RECORD_HEADER_LEN+16), incoming, 0x16, 1, 1);
 
 #ifdef HS_DEBUG
 					printf("New finished ciphertext:\n");
@@ -416,11 +408,21 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 			p = record;
 			p += RECORD_HEADER_LEN;
 			if(((incoming) && (f->in_encrypted > 0)) || ((!incoming) && (f->out_encrypted > 0))){
-				encrypt(f, p, p, record_len - RECORD_HEADER_LEN, incoming, 0x16, 0);
+				//decrypt alert
+				encrypt(f, p, p, record_len - RECORD_HEADER_LEN, incoming, 0x16, 0, 0);
 				p += EVP_GCM_TLS_EXPLICIT_IV_LEN;
 			}
 			printf("Alert (%x:%d -> %x:%d) %02x %02x \n", f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port), p[0], p[1]);
 			fflush(stdout);
+			
+			//re-encrypt alert
+			if(((incoming) && (f->in_encrypted > 0)) || ((!incoming) && (f->out_encrypted > 0))){
+				int32_t n =  encrypt(f, record+RECORD_HEADER_LEN, record+RECORD_HEADER_LEN, record_len - (RECORD_HEADER_LEN+16), incoming, 0x16, 1, 1);
+				if(n <= 0){
+					printf("Error re-encrypting alert\n");
+				}
+			}
+
 			break;
 		case HB:
 			printf("Heartbeat\n");
