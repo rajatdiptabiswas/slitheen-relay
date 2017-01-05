@@ -68,6 +68,9 @@ flow *add_flow(struct packet_info *info) {
 	new_flow->src_port = info->tcp_hdr->src_port;
 	new_flow->dst_port = info->tcp_hdr->dst_port;
 
+	new_flow->ref_ctr = 1;
+	new_flow->removed = 0;
+
 	new_flow->upstream_app_data = emalloc(sizeof(app_data_queue));
 	new_flow->upstream_app_data->first_packet = NULL;
 	new_flow->downstream_app_data = emalloc(sizeof(app_data_queue));
@@ -350,7 +353,11 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 #ifdef DEBUG_HS
 					printf("Received finished (%d) (%x:%d -> %x:%d)\n", incoming, f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port));
 #endif
-					verify_finish_hash(f,p, incoming);
+					if(verify_finish_hash(f,p, incoming)){
+						fprintf(stderr, "Error verifying finished hash\n");
+						remove_flow(f);
+						goto err;
+					}
 					
 					//re-encrypt finished message
 					int32_t n =  encrypt(f, record+RECORD_HEADER_LEN, record+RECORD_HEADER_LEN, record_len - (RECORD_HEADER_LEN+16), incoming, 0x16, 1, 1);
@@ -450,6 +457,19 @@ err:
  */
 int remove_flow(flow *f) {
 
+	sem_wait(&flow_table_lock);
+	//decrement reference counter
+	f->ref_ctr--;
+	if(f->ref_ctr){ //if there are still references to f, wait to free it
+		printf("Cannot free, still %d reference(s)\n", f->ref_ctr);
+		f->removed = 1; 
+		sem_post(&flow_table_lock);
+		return 0;
+	}
+
+	if(f->removed)
+		printf("Trying again to free\n");
+
 	//Empty application data queues
 	packet *tmp = f->upstream_app_data->first_packet;
 	while(tmp != NULL){
@@ -540,7 +560,6 @@ int remove_flow(flow *f) {
 		}
 	}
 
-	sem_wait(&flow_table_lock);
 	flow_entry *entry = table->first_entry;
 	if(entry->f == f){
 		table->first_entry = entry->next;
@@ -635,7 +654,17 @@ flow *check_flow(struct packet_info *info){
 		}
 		entry = entry->next;
 	}
+
+	if(found != NULL){
+		found->ref_ctr++;
+	}
+
 	sem_post(&flow_table_lock);
+
+	if(found != NULL && found->removed){
+		remove_flow(found);
+		found=NULL;
+	}
 
 	return found;
 }

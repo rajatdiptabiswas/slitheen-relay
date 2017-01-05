@@ -43,8 +43,8 @@ int main(int argc, char *argv[]){
 	dev1 = argv[1];
 	dev2 = argv[2];
 
-	snprintf(filter1, 33, "ether src host %s", macaddr);
-	snprintf(filter2, 33, "ether dst host %s", macaddr);
+	snprintf(filter1, 33, "ether src host %s", macaddr1);
+	snprintf(filter2, 33, "ether src host %s", macaddr2);
 
 	if(init_tables()){
 		exit(1);
@@ -342,8 +342,6 @@ void process_packet(struct packet_info *info){
 
 		if(data_to_process){
 
-			uint8_t removed = 0;
-
 			if(p != info->app_data){
 				printf("UH OH something weird might happen\n");
 			}
@@ -354,7 +352,7 @@ void process_packet(struct packet_info *info){
 
 				/* Pass data to packet chain */
 				if(add_packet(observed, info)){//removed_flow
-					removed = 1;
+					return;
 				}
 			}
 
@@ -362,43 +360,96 @@ void process_packet(struct packet_info *info){
 			if(info->tcp_hdr->flags & (FIN | RST) ){
 				/* Remove flow from table, connection ended */
 				remove_flow(observed);
-			} else {
-				/* add packet to application data queue */
+				return;
+			}
+			/* add packet to application data queue */
 
-				//check if flow was removed
-				if(removed){
-					return;
+			//add new app block
+			packet *new_block = ecalloc(1, sizeof(packet));
+			new_block->seq_num = seq_num;
+			new_block->data = ecalloc(1, info->app_data_len);
+			memcpy(new_block->data, info->app_data, info->app_data_len);
+			new_block->len = info->app_data_len;
+			new_block->next = NULL;
+			new_block->expiration = 0;
+
+			packet *saved_data = (incoming)? observed->downstream_app_data->first_packet :
+				observed->upstream_app_data->first_packet;
+
+			//put app data block in queue
+			if(saved_data == NULL){
+				if(incoming){
+					observed->downstream_app_data->first_packet = new_block;
+					if(new_block->seq_num ==
+							observed->downstream_seq_num){
+						observed->downstream_seq_num += new_block->len;
+#ifdef DEBUG
+						printf("Updated downstream expected seqnum to %u\n",
+								observed->downstream_seq_num );
+#endif
+					}
+				} else {
+					observed->upstream_app_data->first_packet = new_block;
+					if(new_block->seq_num ==
+							observed->upstream_seq_num){
+						observed->upstream_seq_num += new_block->len;
+#ifdef DEBUG
+						printf("Updated upstream expected seqnum to %u\n",
+								observed->upstream_seq_num );
+#endif
+					}
 				}
 
-				//add new app block
-				packet *new_block = ecalloc(1, sizeof(packet));
-				new_block->seq_num = seq_num;
-				new_block->data = ecalloc(1, info->app_data_len);
-				memcpy(new_block->data, info->app_data, info->app_data_len);
-				new_block->len = info->app_data_len;
-				new_block->next = NULL;
-				new_block->expiration = 0;
+			}
+			else{
+				uint8_t saved = 0;
+				while(saved_data->next != NULL){
+					if(!saved && (saved_data->next->seq_num > seq_num)){
+						new_block->next = saved_data->next;
+						saved_data->next = new_block;
+						saved = 1;
+					}
 
-				packet *saved_data = (incoming)? observed->downstream_app_data->first_packet :
-					observed->upstream_app_data->first_packet;
-
-				//put app data block in queue
-				if(saved_data == NULL){
+					//update expected sequence number
 					if(incoming){
-						observed->downstream_app_data->first_packet = new_block;
-						if(new_block->seq_num ==
+						if(saved_data->next->seq_num ==
 								observed->downstream_seq_num){
-							observed->downstream_seq_num += new_block->len;
+							observed->downstream_seq_num += saved_data->next->len;
 #ifdef DEBUG
 							printf("Updated downstream expected seqnum to %u\n",
 									observed->downstream_seq_num );
 #endif
 						}
-					} else {
-						observed->upstream_app_data->first_packet = new_block;
-						if(new_block->seq_num ==
+					} else {//outgoing
+						if(saved_data->next->seq_num ==
 								observed->upstream_seq_num){
-							observed->upstream_seq_num += new_block->len;
+							observed->upstream_seq_num += saved_data->next->len;
+#ifdef DEBUG
+							printf("Updated upstream expected seqnum to %u\n",
+									observed->upstream_seq_num );
+#endif
+						}
+					}
+						
+					saved_data = saved_data->next;
+
+				}
+				if(!saved){
+					saved_data->next = new_block;
+					//update expected sequence number
+					if(incoming){
+						if(saved_data->next->seq_num ==
+								observed->downstream_seq_num){
+							observed->downstream_seq_num += saved_data->next->len;
+#ifdef DEBUG
+							printf("Updated downstream expected seqnum to %u\n",
+									observed->downstream_seq_num );
+#endif
+						}
+					} else {//outgoing
+						if(saved_data->next->seq_num ==
+								observed->upstream_seq_num){
+							observed->upstream_seq_num += saved_data->next->len;
 #ifdef DEBUG
 							printf("Updated upstream expected seqnum to %u\n",
 									observed->upstream_seq_num );
@@ -407,67 +458,10 @@ void process_packet(struct packet_info *info){
 					}
 
 				}
-				else{
-					uint8_t saved = 0;
-					while(saved_data->next != NULL){
-						if(!saved && (saved_data->next->seq_num > seq_num)){
-							new_block->next = saved_data->next;
-							saved_data->next = new_block;
-							saved = 1;
-						}
-
-						//update expected sequence number
-						if(incoming){
-							if(saved_data->next->seq_num ==
-									observed->downstream_seq_num){
-								observed->downstream_seq_num += saved_data->next->len;
-#ifdef DEBUG
-								printf("Updated downstream expected seqnum to %u\n",
-										observed->downstream_seq_num );
-#endif
-							}
-						} else {//outgoing
-							if(saved_data->next->seq_num ==
-									observed->upstream_seq_num){
-								observed->upstream_seq_num += saved_data->next->len;
-#ifdef DEBUG
-								printf("Updated upstream expected seqnum to %u\n",
-										observed->upstream_seq_num );
-#endif
-							}
-						}
-							
-						saved_data = saved_data->next;
-
-					}
-					if(!saved){
-						saved_data->next = new_block;
-						//update expected sequence number
-						if(incoming){
-							if(saved_data->next->seq_num ==
-									observed->downstream_seq_num){
-								observed->downstream_seq_num += saved_data->next->len;
-#ifdef DEBUG
-								printf("Updated downstream expected seqnum to %u\n",
-										observed->downstream_seq_num );
-#endif
-							}
-						} else {//outgoing
-							if(saved_data->next->seq_num ==
-									observed->upstream_seq_num){
-								observed->upstream_seq_num += saved_data->next->len;
-#ifdef DEBUG
-								printf("Updated upstream expected seqnum to %u\n",
-										observed->upstream_seq_num );
-#endif
-							}
-						}
-
-					}
-				}
 			}
 		}
 
+		observed->ref_ctr--;
 	}
 
 

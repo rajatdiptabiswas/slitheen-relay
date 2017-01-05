@@ -86,6 +86,9 @@ typedef struct session_cache_st {
 typedef struct flow_st {
 	sem_t flow_lock;
 
+	uint32_t ref_ctr;
+	uint8_t removed;
+
 	struct in_addr src_ip, dst_ip; /* Source (client) and Destination (server) addresses */
 	uint16_t src_port, dst_port;	/* Source and Destination ports */
 

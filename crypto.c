@@ -582,7 +582,6 @@ int verify_finish_hash(flow *f, uint8_t *hs, int32_t incoming){
 
 	if(update_finish_hash(f, old_finished)){
 		fprintf(stderr, "Error updating finish hash with FINISHED msg\n");
-		remove_flow(f);
 		goto err;
 	}
 
@@ -1450,26 +1449,39 @@ void check_handshake(struct packet_info *info){
 			printf(")\n");
 #endif
 
-			/* Save flow in table */
-			flow *flow_ptr = add_flow(info);
+			/* If flow is not in table, save it */
+			flow *flow_ptr = check_flow(info);
 			if(flow_ptr == NULL){
-				fprintf(stderr, "Memory failure\n");
-				return;
-			}
+				flow_ptr = add_flow(info);
+				if(flow_ptr == NULL){
+					fprintf(stderr, "Memory failure\n");
+					return;
+				}
 
-			for(int i=0; i<16; i++){
-				flow_ptr->key[i] = key[i];
-			}
+				for(int i=0; i<16; i++){
+					flow_ptr->key[i] = key[i];
+				}
 
-			memcpy(flow_ptr->client_random, hello_rand, SSL3_RANDOM_SIZE);
+				memcpy(flow_ptr->client_random, hello_rand, SSL3_RANDOM_SIZE);
 #ifdef DEBUG
-			for(int i=0; i< SSL3_RANDOM_SIZE; i++){
-				printf("%02x ", hello_rand[i]);
-			}
-			printf("\n");
-			
-			printf("Saved new flow\n");
+				for(int i=0; i< SSL3_RANDOM_SIZE; i++){
+					printf("%02x ", hello_rand[i]);
+				}
+				printf("\n");
+				
+				printf("Saved new flow\n");
 #endif
+
+				flow_ptr->ref_ctr--;
+
+			} else { /* else update saved flow with new key and random nonce */
+				for(int i=0; i<16; i++){
+					flow_ptr->key[i] = key[i];
+				}
+
+				memcpy(flow_ptr->client_random, hello_rand, SSL3_RANDOM_SIZE);
+				flow_ptr->ref_ctr--;
+			}
 
 		}
 	}
