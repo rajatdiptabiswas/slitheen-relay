@@ -4,12 +4,6 @@
 #include <netinet/in.h>
 #include <pcap.h>
 
-#define macaddr1 "00:25:90:5a:26:99"
-#define macaddr2 "00:25:90:c9:5a:09"
-
-//#define macaddr1 "08:00:27:0e:89:ea"
-//#define macaddr2 "08:00:27:0e:89:ea"
-
 /* Ethernet addresses are 6 bytes */
 #define ETHER_ADDR_LEN	6
 #define ETHER_HEADER_LEN  2*ETHER_ADDR_LEN + 2
@@ -104,7 +98,6 @@ struct __attribute__((__packed__)) handshake_header {
 struct sniff_args {
 	char *readdev;
 	char *writedev;
-	char *filter;
 };
 
 void got_packet(uint8_t *args, const struct pcap_pkthdr *header, const uint8_t *packet);

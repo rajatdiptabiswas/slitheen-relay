@@ -27,8 +27,6 @@ void usage(void){
 
 int main(int argc, char *argv[]){
 	pthread_t t1, t2;
-	char *filter1 = ecalloc(1, 33);
-	char *filter2 = ecalloc(1, 33);
 
 	char *dev1 = NULL; /* Device that leads to the internal network */
 	char *dev2 = NULL; /* Device that leads out to the world */
@@ -43,9 +41,6 @@ int main(int argc, char *argv[]){
 	dev1 = argv[1];
 	dev2 = argv[2];
 
-	snprintf(filter1, 33, "ether src host %s", macaddr1);
-	snprintf(filter2, 33, "ether src host %s", macaddr2);
-
 	if(init_tables()){
 		exit(1);
 	}
@@ -57,10 +52,10 @@ int main(int argc, char *argv[]){
 	/* Create threads */
 	outbound.readdev = dev1;
 	outbound.writedev = dev2;
-	outbound.filter = filter1;
+
 	inbound.readdev = dev2;
 	inbound.writedev = dev1;
-	inbound.filter = filter2;
+
 	pthread_create(&t1, NULL, sniff_packets, (void *) &outbound);
 	pthread_create(&t2, NULL, sniff_packets, (void *) &inbound);
 
@@ -68,8 +63,6 @@ int main(int argc, char *argv[]){
 	pthread_join(t2, NULL);
 
 	pthread_exit(NULL);
-	free(filter1);
-	free(filter2);
 
 	crypto_locks_cleanup();
 
@@ -81,15 +74,13 @@ void *sniff_packets(void *args){
 	pcap_t *wr_handle;
 	char rd_errbuf[BUFSIZ];
 	char wr_errbuf[BUFSIZ];
-	struct bpf_program fp;
 	bpf_u_int32 mask;
 	bpf_u_int32 net;
 
-	char *readdev, *writedev, *filter;
+	char *readdev, *writedev;
 	struct sniff_args *arg_st = (struct sniff_args *) args;
 	readdev = arg_st->readdev;
 	writedev = arg_st->writedev;
-	filter = arg_st->filter;
 
 	if (pcap_lookupnet(readdev, &net, &mask, rd_errbuf) == -1){
 		fprintf(stderr, "Can't get netmask for device %s\n", readdev);
@@ -106,13 +97,8 @@ void *sniff_packets(void *args){
 		exit(2);
 	}
 
-	if(pcap_compile(rd_handle, &fp, filter, 0 , net) == -1){
-		fprintf(stderr, "Couldn't parse filter %s: %s\n", filter, pcap_geterr(rd_handle));
-		exit(2);
-	}
-
-	if (pcap_setfilter(rd_handle, &fp) == -1) {
-		fprintf(stderr, "Couldn't install filter %s: %s\n", filter, pcap_geterr(rd_handle));
+	if(pcap_setdirection(rd_handle, PCAP_D_IN)){
+		fprintf(stderr, "Platform does not support write direction. Update filters with MAC address\n");
 		exit(2);
 	}
 
@@ -120,6 +106,7 @@ void *sniff_packets(void *args){
 	if (wr_handle == NULL){
 		fprintf(stderr, "Couldn't open device %s: %s\n", writedev, wr_errbuf);
 	}
+
 	/*callback function*/
 	pcap_loop(rd_handle, -1, got_packet, (unsigned char *) wr_handle);
 
