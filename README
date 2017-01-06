@@ -1,6 +1,5 @@
 To install:
 
-open slitheen-proxy.c and change the MAC address to your client machine
 make openssl
 copy library and include directories into makefile
 make
