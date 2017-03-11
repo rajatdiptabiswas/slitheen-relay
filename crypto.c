@@ -477,6 +477,32 @@ int encrypt(flow *f, uint8_t *input, uint8_t *output, int32_t len, int32_t incom
 	return n;
 }
 
+
+/** Increases the GCM counter when we don't decrypt a record to produce the correct tag in the next
+ *  re-encrypted record
+ *
+ * 	Inputs:
+ * 		f: the tagged flow
+ * 		incoming: the direction of the flow
+ *
+ * 	Output:
+ * 		0 on success, 1 on failure
+ */
+int fake_encrypt(flow *f, int32_t incoming){
+
+	uint8_t *seq = (incoming) ? f->read_seq : f->write_seq;
+
+	for(int i=7; i>=0; i--){
+		++seq[i];
+		if(seq[i] != 0)
+			break;
+	}
+
+	return 0;
+
+}
+	
+
 /** Verifies the hash in a TLS finished message
  *
  * Adds string derived from the client-relay shared secret to the finished hash.
@@ -1299,6 +1325,11 @@ int super_encrypt(client *c, uint8_t *data, uint32_t len){
 
 	hdr_ctx = EVP_CIPHER_CTX_new();
 
+	if(c->header_key == NULL){
+		retval = 0;
+		goto end;
+	}
+
 	EVP_CipherInit_ex(hdr_ctx, EVP_aes_256_cbc(), NULL, c->header_key, NULL, 1);
 	
 	if(!EVP_CipherUpdate(hdr_ctx, p, &out_len, p, SLITHEEN_HEADER_LEN)){
@@ -1343,8 +1374,8 @@ int super_encrypt(client *c, uint8_t *data, uint32_t len){
 
 	if(!EVP_CipherUpdate(bdy_ctx, p, &out_len, p, len)){
 		printf("Failed!\n");
-		goto end;
 		retval = 0;
+		goto end;
 	}
 
 #ifdef DEBUG

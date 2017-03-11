@@ -81,12 +81,14 @@ flow *add_flow(struct packet_info *info) {
 
 	new_flow->streams=NULL;
 	new_flow->downstream_queue=NULL;
+	new_flow->client_ptr=NULL;
 
 	sem_init(&(new_flow->flow_lock), 0, 1);
 	new_flow->state = TLS_CLNT_HELLO;
 	new_flow->in_encrypted = 0;
 	new_flow->out_encrypted = 0;
 	new_flow->application = 0;
+	new_flow->stall = 0;
 	new_flow->resume_session = 0;
 	new_flow->current_session = NULL;
 
@@ -376,8 +378,6 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 					}
 
 					if((f->in_encrypted == 2) && (f->out_encrypted == 2)){
-						printf("Handshake complete!\n");
-						fflush(stdout);
 						f->application = 1;
 					}
 
@@ -398,7 +398,6 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 			/*Initialize ciphers */
 			if ((!f->in_encrypted) && (!f->out_encrypted)){
 				if(init_ciphers(f)){
-					fprintf(stderr, "Failed to initialize ciphers\n");
 					remove_flow(f);
 					goto err;
 				}
@@ -515,8 +514,8 @@ int remove_flow(flow *f) {
 		EC_KEY_free(f->ecdh);
 	}
 
-	if(f->resume_session == 1){
-		if(f->current_session->session_ticket != NULL){
+	if(f->current_session != NULL && f->resume_session == 1){
+		if( f->current_session->session_ticket != NULL){
 			free(f->current_session->session_ticket);
 		}
 		free(f->current_session);
@@ -565,8 +564,6 @@ int remove_flow(flow *f) {
 		table->first_entry = entry->next;
 		free(entry->f);
 		free(entry);
-		printf("flow removed!\n");
-		fflush(stdout);
 		table->len --;
 	} else {
 
@@ -583,7 +580,6 @@ int remove_flow(flow *f) {
 				entry->next = next->next;
 				free(next->f);
 				free(next);
-				printf("flow removed!\n");
 				table->len --;
 				break;
 			}
@@ -690,6 +686,9 @@ int init_session_cache(void){
  */
 int verify_session_id(flow *f, uint8_t *hs){
 	
+	if (f->current_session == NULL)
+		return 1;
+
 	//increment pointer to point to sessionid
 	uint8_t *p = hs + HANDSHAKE_HEADER_LEN;
 	p += 2; //skip version
@@ -699,7 +698,7 @@ int verify_session_id(flow *f, uint8_t *hs){
 	p ++;
 	
 	//check to see if it matches flow's session id set by ClientHello
-	if(f->current_session != NULL && f->current_session->session_id_len > 0 && !memcmp(f->current_session->session_id, p, id_len)){
+	if(f->current_session->session_id_len > 0 && !memcmp(f->current_session->session_id, p, id_len)){
 		//if it matched, update flow with master secret :D
 #ifdef DEBUG_HS
 		printf("Session id matched!\n");
@@ -724,25 +723,50 @@ int verify_session_id(flow *f, uint8_t *hs){
 		if((!found) && (f->current_session->session_ticket_len > 0)){
 			last = sessions->first_session;
 			for(int i=0; ((i<sessions->length) && (!found)); i++){
-				if(last->session_ticket_len == f->current_session->session_ticket_len){
-				if(!memcmp(last->session_ticket, f->current_session->session_ticket, f->current_session->session_ticket_len)){
-					memcpy(f->master_secret, last->master_secret, SSL3_MASTER_SECRET_SIZE);
-					found = 1;
-#ifdef DEBUG_HS
-					printf("Found new session ticket (%x:%d -> %x:%d)\n", f->src_ip.s_addr, f->src_port, f->dst_ip.s_addr, f->dst_port);
-					for(int i=0; i< last->session_ticket_len; i++){
-						printf("%02x ", last->session_ticket[i]);
+				if( (last->session_ticket != NULL) && (last->session_ticket_len == f->current_session->session_ticket_len)){
+					if(!memcmp(last->session_ticket, f->current_session->session_ticket, f->current_session->session_ticket_len)){
+						memcpy(f->master_secret, last->master_secret, SSL3_MASTER_SECRET_SIZE);
+						found = 1;
+	#ifdef DEBUG_HS
+						printf("Found new session ticket (%x:%d -> %x:%d)\n", f->src_ip.s_addr, f->src_port, f->dst_ip.s_addr, f->dst_port);
+						for(int i=0; i< last->session_ticket_len; i++){
+							printf("%02x ", last->session_ticket[i]);
+						}
+						printf("\n");
+	#endif
 					}
-					printf("\n");
-#endif
-				}
 				}
 				last = last->next;
 			}
 		}
 
-	} else if (f->current_session != NULL &&  f->current_session->session_id_len > 0){
-		//check to see if server's hello extension matches the ticket
+	} else if (f->current_session->session_id_len == 0){
+		//search for session ticket in session cache
+        printf("clnt session id was empty, looking for ticket\n");
+		session *last = sessions->first_session;
+		if(f->current_session->session_ticket_len > 0){
+			last = sessions->first_session;
+			for(int i=0; i<sessions->length; i++){
+				if(last->session_ticket_len == f->current_session->session_ticket_len){
+					if(!memcmp(last->session_ticket, f->current_session->session_ticket, f->current_session->session_ticket_len)){
+						memcpy(f->master_secret, last->master_secret, SSL3_MASTER_SECRET_SIZE);
+	#ifdef DEBUG_HS
+						printf("Found new session ticket (%x:%d -> %x:%d)\n", f->src_ip.s_addr, f->src_port, f->dst_ip.s_addr, f->dst_port);
+						for(int i=0; i< last->session_ticket_len; i++){
+							printf("%02x ", last->session_ticket[i]);
+						}
+						printf("\n");
+						break;
+	#endif
+					}
+				}
+				last = last->next;
+			}
+		}
+
+	} else if (f->current_session->session_id_len > 0){
+		//server refused resumption, save new session id
+        printf("session ids did not match, saving new id\n");
 		save_session_id(f, p);
 	}
 
@@ -770,6 +794,7 @@ int check_session(flow *f, uint8_t *hs, uint32_t len){
 	session *new_session = emalloc(sizeof(session));
 	new_session->session_id_len = (uint8_t) p[0];
 	new_session->session_ticket_len = 0;
+	new_session->session_ticket = NULL;
 	p  ++;
 
 	if(new_session->session_id_len > 0){
@@ -816,7 +841,7 @@ int check_session(flow *f, uint8_t *hs, uint32_t len){
 			if(ext_len > 0){
 				f->resume_session = 1;
 				new_session->session_ticket_len = ext_len;
-				new_session->session_ticket = emalloc(ext_len);
+				new_session->session_ticket = ecalloc(1, ext_len);
 				memcpy(new_session->session_ticket, p, ext_len);
 				f->current_session = new_session;
 			}
@@ -826,8 +851,8 @@ int check_session(flow *f, uint8_t *hs, uint32_t len){
 	}
 
 	if(!f->resume_session){
-		//see if a ticket is incuded
 		free(new_session);
+		f->stall = 0; //unstall the next packet
 	}
 
 	return 0;
@@ -854,7 +879,7 @@ int save_session_id(flow *f, uint8_t *hs){
 	session *new_session = emalloc(sizeof(session));
 
 	new_session->session_id_len = (uint8_t) p[0];
-	if(new_session->session_id_len <= 0){
+	if((new_session->session_id_len <= 0) || (new_session->session_id_len > SSL_MAX_SSL_SESSION_ID_LENGTH)){
 		//if this value is zero, the session is non-resumable or the
 		//server will issue a NewSessionTicket handshake message
 		free(new_session);
@@ -862,6 +887,8 @@ int save_session_id(flow *f, uint8_t *hs){
 	}
 	p++;
 	memcpy(new_session->session_id, p, new_session->session_id_len);
+    new_session->session_ticket_len = 0;
+	new_session->session_ticket = NULL;
 	new_session->next = NULL;
 
 	if(f->current_session != NULL){
@@ -892,6 +919,7 @@ int save_session_id(flow *f, uint8_t *hs){
 
 	sessions->length ++;
 
+#ifdef DEBUG_HS
 	printf("Saved session id:");
 	for(int i=0; i< new_session->session_id_len; i++){
 		printf(" %02x", new_session->session_id[i]);
@@ -899,6 +927,8 @@ int save_session_id(flow *f, uint8_t *hs){
 	printf("\n");
 
 	printf("THERE ARE NOW %d saved sessions\n", sessions->length);
+
+#endif
 
 	return 0;
 
@@ -929,6 +959,7 @@ int save_session_ticket(flow *f, uint8_t *hs, uint32_t len){
 	new_session->session_id_len = 0;
 	
 	new_session->session_ticket_len = (p[0] << 8) + p[1];
+    new_session->next = NULL;
 	p += 2;
 
 	uint8_t *ticket = emalloc(new_session->session_ticket_len);
@@ -969,10 +1000,10 @@ int save_session_ticket(flow *f, uint8_t *hs, uint32_t len){
 	printf("\n");
 	fflush(stdout);
 
-	printf("THERE ARE NOW %d saved sessions\n", sessions->length);
+	printf("THERE ARE NOW %d saved sessions (2)\n", sessions->length);
 	fflush(stdout);
-#endif
 
+#endif
 	return 0;
 }
 
@@ -1161,7 +1192,7 @@ int add_packet(flow *f, struct packet_info *info){
 		
 		} else {//
 			//add to end of packet_chain
-			printf("Missing packet (expected %d, received %d)\n", chain->expected_seq_num, new_packet->seq_num);
+			//printf("Missing packet (expected %d, received %d)\n", chain->expected_seq_num, new_packet->seq_num);
 		}
 	}
 	return 0;

@@ -13,6 +13,7 @@
 
 int extract_parameters(flow *f, uint8_t *hs);
 int encrypt(flow *f, uint8_t *input, uint8_t *output, int32_t len, int32_t incoming, int32_t type, int32_t enc, uint8_t re);
+int fake_encrypt(flow *f, int32_t incoming);
 int extract_server_random(flow *f, uint8_t *hs);
 int compute_master_secret(flow *f);
 

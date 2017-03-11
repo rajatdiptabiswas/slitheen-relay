@@ -121,9 +121,7 @@ int read_header(flow *f, struct packet_info *info){
 	uint32_t record_length;
 	if(f->upstream_remaining > 0){
 	//check to see whether the previous record has finished
-		printf("US: finishing previous record\n");
 		if(f->upstream_remaining > info->app_data_len){
-			printf("US: still need more\n");
 			//ignore entire packet for now
 			queue_block *new_block = emalloc(sizeof(queue_block));
 
@@ -237,8 +235,6 @@ int read_header(flow *f, struct packet_info *info){
 
 	uint8_t *upstream_data;
 	if(header_ptr == NULL){
-		printf("Slitheen header not found(%x:%d > %x:%d) \n",info->ip_hdr->src.s_addr,info->tcp_hdr->src_port, info->ip_hdr->dst.s_addr, info->tcp_hdr->dst_port);
-		fflush(stdout);
 		if(record_ptr != NULL)
 			free(record_ptr);
 		free(decrypted_data);
@@ -352,6 +348,8 @@ int read_header(flow *f, struct packet_info *info){
 
 			if(f->streams == NULL){
 				//create new client
+
+				printf("Creating a new client\n");
 				client *new_client = emalloc(sizeof(client));
 
 				memcpy(new_client->slitheen_id, p, output_len);
@@ -900,8 +898,11 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 		uint8_t *record_ptr = p; //points to the beginning of record data
 		uint32_t remaining_record_len = record_len;
 
+
 		if(record_len > remaining_packet_len){
+			int8_t increment_ctr = 1;
 			f->remaining_record_len = record_len - remaining_packet_len;
+
 
 			if(f->httpstate == PARSE_HEADER || f->httpstate == BEGIN_CHUNK || f->httpstate == END_CHUNK){
 				f->httpstate = FORFEIT_REST;
@@ -925,6 +926,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 						
 						memcpy(p, f->outbox, remaining_packet_len);
 						changed = 1;
+						increment_ctr = 0;
 						f->outbox_len -= remaining_packet_len;
 						f->outbox_offset += remaining_packet_len;
 					}
@@ -943,11 +945,17 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 					f->httpstate = FORFEIT_REST;
 				}
 			}
+
+			if(increment_ctr){//not decrypting record, must increment GCM ctr
+				fake_encrypt(f, 1);
+			}
+
 			remaining_packet_len -= remaining_packet_len;
 			if(f->partial_record_header_len > 0){
 				f->partial_record_header_len = 0;
 				free(f->partial_record_header);
 			}
+
 			break;
 		}
 
@@ -1244,6 +1252,9 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 
 	data_queue *downstream_queue = f->downstream_queue;
 	client *client_ptr = f->client_ptr;
+
+	if(client_ptr == NULL) return 1;
+
 
 	//Fill as much as we can from the censored_queue
 	//Note: need enough for the header and one block of data (16 byte IV, 16 byte

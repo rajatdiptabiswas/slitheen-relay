@@ -103,6 +103,7 @@ typedef struct flow_st {
 	int in_encrypted;		/* indicates whether incoming flow is encrypted */
 	int out_encrypted;		/* indicates whether outgoing flow is encrypted */
 	int application; /* indicates handshake is complete */
+	int stall; /* indicates the Finished message is expected and relay station should stall */
 	int resume_session;
 	stream_table *streams;
 	data_queue *downstream_queue;
