@@ -102,8 +102,9 @@ struct sniff_args {
 
 void got_packet(uint8_t *args, const struct pcap_pkthdr *header, const uint8_t *packet);
 void *sniff_packets(void *);
-void process_packet(struct packet_info *info);
+void process_packet(pcap_t *handle, const struct pcap_pkthdr *header, uint8_t *packet);
 void extract_packet_headers(uint8_t *packet, struct packet_info *info);
 struct packet_info *copy_packet_info(struct packet_info *src_info);
+void inject_packet(pcap_t *handle, const struct pcap_pkthdr *header, uint8_t *packet);
 
 #endif /* _SLITHEEN_H_ */

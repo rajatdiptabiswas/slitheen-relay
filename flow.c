@@ -79,6 +79,11 @@ flow *add_flow(struct packet_info *info) {
 	new_flow->upstream_seq_num = ntohl(info->tcp_hdr->sequence_num);
 	new_flow->downstream_seq_num = ntohl(info->tcp_hdr->ack_num);
 
+    new_flow->us_frame_queue = emalloc(sizeof(frame_queue));
+    new_flow->us_frame_queue->first_frame = NULL;
+    new_flow->ds_frame_queue = emalloc(sizeof(frame_queue));
+    new_flow->ds_frame_queue->first_frame = NULL;
+
 	new_flow->streams=NULL;
 	new_flow->downstream_queue=NULL;
 	new_flow->client_ptr=NULL;
@@ -468,6 +473,24 @@ int remove_flow(flow *f) {
 
 	if(f->removed)
 		printf("Trying again to free\n");
+
+    frame *first_frame = f->us_frame_queue->first_frame;
+    while(first_frame != NULL){
+        inject_packet(first_frame->handle, first_frame->header, first_frame->packet);
+        frame *tmp = first_frame->next;
+        free(first_frame);
+        first_frame = tmp;
+    }
+    free(f->us_frame_queue);
+
+    first_frame = f->ds_frame_queue->first_frame;
+    while(first_frame != NULL){
+        inject_packet(first_frame->handle, first_frame->header, first_frame->packet);
+        frame *tmp = first_frame->next;
+        free(first_frame);
+        first_frame = tmp;
+    }
+    free(f->ds_frame_queue);
 
 	//Empty application data queues
 	packet *tmp = f->upstream_app_data->first_packet;
@@ -1007,8 +1030,12 @@ int save_session_ticket(flow *f, uint8_t *hs, uint32_t len){
 	return 0;
 }
 
-/* Adds a packet the flow's packet chain. If it can complete a record, gives
- * this record to update_flow */
+/* Adds a (handshake) packet to the flow's packet chain. If it can complete a record, passes
+ * this record to update_flow
+ *
+ * Note: the code in slitheen-proxy.c should ensure that this function only ever gets the next
+ * expected sequence number
+ */
 int add_packet(flow *f, struct packet_info *info){
 	if (info->tcp_hdr == NULL || info->app_data_len <= 0){
 		return 0;
@@ -1030,13 +1057,20 @@ int add_packet(flow *f, struct packet_info *info){
 
 	if(new_packet->seq_num < chain->expected_seq_num){
 		//see if this packet contains any data we are missing
-		printf("Received replayed packet O.o\n");
+        //TODO: figure out how/why this happens and what should follow
+		printf("ERROR: Received replayed packet O.o\n");
+
 		free(new_packet->data);
 		free(new_packet);
 
-	} else {//new_packet->seq_num >= chain->expected_seq_num
+    } else {//new_packet->seq_num >= chain->expected_seq_num
+        
+        if(new_packet->seq_num > chain->expected_seq_num) {
+            printf("ERROR: Received future packet O.o\n");
+        }
 	
 		//Find appropriate place in chain
+        //TODO: this can be simplified; slitheen-proxy code already takes care of it
 		packet *previous = NULL;
 		packet *next = chain->first_packet;
 		while(next != NULL && (next->seq_num <= new_packet->seq_num)){
@@ -1135,7 +1169,7 @@ int add_packet(flow *f, struct packet_info *info){
 							return 1;//error occurred and flow was removed
 						}
 
-						//check to see if last finished message received
+						//check to see if server finished message received
 						if(f->in_encrypted ==2){
 
 #ifdef DEBUG
@@ -1192,7 +1226,7 @@ int add_packet(flow *f, struct packet_info *info){
 		
 		} else {//
 			//add to end of packet_chain
-			//printf("Missing packet (expected %d, received %d)\n", chain->expected_seq_num, new_packet->seq_num);
+			printf("Missing packet (expected %d, received %d)\n", chain->expected_seq_num, new_packet->seq_num);
 		}
 	}
 	return 0;

@@ -67,6 +67,18 @@ typedef struct app_data_queue_st {
 	packet *first_packet;
 } app_data_queue;
 
+typedef struct frame_st {
+    uint8_t *packet;
+    const struct pcap_pkthdr *header;
+    pcap_t *handle;
+	uint32_t seq_num;
+    struct frame_st *next;
+} frame;
+
+typedef struct frame_queue_st {
+    frame *first_frame;
+} frame_queue;
+
 typedef struct session_st {
 	uint8_t session_id_len;
 	uint8_t session_id[SSL_MAX_SSL_SESSION_ID_LENGTH];
@@ -97,6 +109,9 @@ typedef struct flow_st {
 
 	app_data_queue *upstream_app_data;	/* Saved application-layer data for packet retransmits */
 	app_data_queue *downstream_app_data;
+
+    frame_queue *us_frame_queue; /*Held misordered Ethernet frames to be processed and written out later */
+    frame_queue *ds_frame_queue; /*Held misordered Ethernet frames to be processed and written out later */
 
 	byte key[16];		/* negotiated key */
 	int state;		/* TLS handshake state */
