@@ -7,6 +7,7 @@
 #include <openssl/ssl.h>
 #include "ptwist.h"
 #include "slitheen.h"
+#include "util.h"
 
 #define MAX_FLOWS 10
 #define SLITHEEN_ID_LEN 28
@@ -70,8 +71,8 @@ typedef struct app_data_queue_st {
 typedef struct frame_st {
     uint8_t *packet;
     const struct pcap_pkthdr *header;
-    pcap_t *handle;
-	uint32_t seq_num;
+    struct inject_args *iargs;
+    uint32_t seq_num;
     struct frame_st *next;
 } frame;
 
@@ -120,12 +121,14 @@ typedef struct flow_st {
 	int application; /* indicates handshake is complete */
 	int stall; /* indicates the Finished message is expected and relay station should stall */
 	int resume_session;
-	stream_table *streams;
-	data_queue *downstream_queue;
+	stream_table *streams; //TODO delete (reference client)
+	data_queue *downstream_queue; //TODO: delete (reference client)
 	client *client_ptr;
 
 	packet_chain *ds_packet_chain;
 	packet_chain *us_packet_chain;
+        queue *ds_hs_queue;
+        queue *us_hs_queue;
 	sem_t packet_chain_lock;
 
 	queue_block *upstream_queue;

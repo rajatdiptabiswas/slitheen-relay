@@ -12,6 +12,8 @@
 #include <unistd.h>
 #include <string.h>
 #include <pthread.h>
+#include <sys/ioctl.h>
+#include <net/if.h>
 #include <openssl/ssl.h>
 
 #include "util.h"
@@ -79,6 +81,7 @@ void *sniff_packets(void *args){
 	pcap_t *wr_handle;
 	char rd_errbuf[BUFSIZ];
 	char wr_errbuf[BUFSIZ];
+        uint8_t MAC[ETHER_ADDR_LEN];
 	bpf_u_int32 mask;
 	bpf_u_int32 net;
 
@@ -87,12 +90,20 @@ void *sniff_packets(void *args){
 	readdev = arg_st->readdev;
 	writedev = arg_st->writedev;
 
+        //Find MAC address of each interface
+        struct ifreq ifr;
+        int s = socket(AF_INET, SOCK_DGRAM, 0);
+        strcpy(ifr.ifr_name, writedev);
+        ioctl(s, SIOCGIFHWADDR, &ifr);
+        memcpy(MAC, ifr.ifr_hwaddr.sa_data, ETHER_ADDR_LEN);
+        close(s);
+
 	if (pcap_lookupnet(readdev, &net, &mask, rd_errbuf) == -1){
 		fprintf(stderr, "Can't get netmask for device %s\n", readdev);
 		exit(2);
 	}
 
-	rd_handle = pcap_open_live(readdev, BUFSIZ, 1, 0, rd_errbuf);
+	rd_handle = pcap_open_live(readdev, BUFSIZ, 0, 0, rd_errbuf);
 	if (rd_handle == NULL){
 		fprintf(stderr, "Couldn't open device %s: %s\n", readdev, rd_errbuf);
 	}
@@ -107,13 +118,18 @@ void *sniff_packets(void *args){
 		exit(2);
 	}
 
-	wr_handle = pcap_open_live(writedev, BUFSIZ, 1, 0, wr_errbuf);
+	wr_handle = pcap_open_live(writedev, BUFSIZ, 0, 0, wr_errbuf);
 	if (wr_handle == NULL){
 		fprintf(stderr, "Couldn't open device %s: %s\n", writedev, wr_errbuf);
 	}
 
+        struct inject_args iargs;
+        iargs.mac_addr = MAC;
+        iargs.write_dev = wr_handle;
+
+
 	/*callback function*/
-	pcap_loop(rd_handle, -1, got_packet, (unsigned char *) wr_handle);
+	pcap_loop(rd_handle, -1, got_packet, (unsigned char *) &iargs);
 
 	/*Sniff a packet*/
 	pcap_close(rd_handle);
@@ -125,22 +141,27 @@ void *sniff_packets(void *args){
 /*
  * Injects a packet back out the opposite interface
  */
-void inject_packet(pcap_t *handle, const struct pcap_pkthdr *header, uint8_t *packet){
+void inject_packet(struct inject_args *iargs, const struct pcap_pkthdr *header, uint8_t *packet){
+    pcap_t *handle = iargs->write_dev;
 
+    //write back out to the MAC ADDR it came in on
+    memmove(packet, packet+ETHER_ADDR_LEN, ETHER_ADDR_LEN);
+    memcpy(packet+ETHER_ADDR_LEN, iargs->mac_addr, ETHER_ADDR_LEN);
 
-	if((pcap_inject(handle, packet, header->len)) < 0 ){
-		fprintf(stderr, "Error: %s\n", pcap_geterr(handle));
-	}
+    if((pcap_inject(handle, packet, header->len)) < 0 ){
+        fprintf(stderr, "Error: %s\n", pcap_geterr(handle));
+        printf("Length: %d\n", header->len);
+    }
 
 #ifdef DEBUG
-	fprintf(stderr, "injected the following packet:\n");
-	for(int i=0; i< header->len; i++){
-		fprintf(stderr, "%02x ", packet[i]);
-	}
-	fprintf(stderr, "\n");
+    fprintf(stderr, "injected the following packet:\n");
+    for(int i=0; i< header->len; i++){
+        fprintf(stderr, "%02x ", packet[i]);
+    }
+    fprintf(stderr, "\n");
 
 #endif
-	free(packet);
+    free(packet);
 }
 
 /**
@@ -150,15 +171,12 @@ void inject_packet(pcap_t *handle, const struct pcap_pkthdr *header, uint8_t *pa
  *
  */
 void got_packet(uint8_t *args, const struct pcap_pkthdr *header, const uint8_t *packet){
-	pcap_t *handle = (pcap_t *) args;
+    struct inject_args *iargs = (struct inject_args *) args;
 
-	uint8_t *tmp_packet = emalloc(header->len);
-	memcpy(tmp_packet, packet, header->len);
+    uint8_t *tmp_packet = emalloc(header->len);
+    memcpy(tmp_packet, packet, header->len);
 
-	process_packet(handle, header, tmp_packet);
-
-
-
+    process_packet(iargs, header, tmp_packet);
 }
 
 /* This function receives a full ip packet and then:
@@ -166,73 +184,76 @@ void got_packet(uint8_t *args, const struct pcap_pkthdr *header, const uint8_t *
  * 	2) adds the packet to the flow's data chain
  * 	3) updates the flow's state
  */
-void process_packet(pcap_t *handle, const struct pcap_pkthdr *header, uint8_t *packet){
+void process_packet(struct inject_args *iargs, const struct pcap_pkthdr *header, uint8_t *packet){
 
-	struct packet_info *info = emalloc(sizeof(struct packet_info));
-	extract_packet_headers(packet, info);
+    struct packet_info *info = emalloc(sizeof(struct packet_info));
+    extract_packet_headers(packet, info);
 
     //Ignore non-TCP packets (shouldn't actually get any)
-	if((info->ip_hdr == NULL) || (info->tcp_hdr == NULL))
-		goto err;
+    if((info->ip_hdr == NULL) || (info->tcp_hdr == NULL)){
+        free(info);
+        free(packet);
+        return;
+    }
 
-	/* Checks to see if this is a possibly tagged hello msg */
-	if ((info->record_hdr != NULL) && (info->record_hdr->type == HS)){ /* This is a TLS handshake */
-		check_handshake(info);
-	}
+    /* Checks to see if this is a possibly tagged hello msg */
+    if ((info->record_hdr != NULL) && (info->record_hdr->type == HS)){ /* This is a TLS handshake */
+        check_handshake(info);
+    }
 
-
-	/* Now if flow is in table, update state */
-	flow *observed;
-	if((observed = check_flow(info)) != NULL){
-	
+    /* Now if flow is in table, update state */
+    flow *observed;
+    if((observed = check_flow(info)) != NULL){
+    
 #ifdef DEBUG
-		/*Check sequence number and replay application data if necessary*/
-		fprintf(stdout,"Flow: %x:%d > %x:%d (%s)\n", info->ip_hdr->src.s_addr, ntohs(info->tcp_hdr->src_port), info->ip_hdr->dst.s_addr, ntohs(info->tcp_hdr->dst_port), (info->ip_hdr->src.s_addr != observed->src_ip.s_addr)? "incoming":"outgoing");
-		fprintf(stdout,"ID number: %u\n", htonl(info->ip_hdr->id));
-		fprintf(stdout,"Sequence number: %u\n", htonl(info->tcp_hdr->sequence_num));
-		fprintf(stdout,"Acknowledgement number: %u\n", htonl(info->tcp_hdr->ack_num));
+        /*Check sequence number and replay application data if necessary*/
+        fprintf(stdout,"Flow: %x:%d > %x:%d (%s)\n", info->ip_hdr->src.s_addr, ntohs(info->tcp_hdr->src_port), info->ip_hdr->dst.s_addr, ntohs(info->tcp_hdr->dst_port), (info->ip_hdr->src.s_addr != observed->src_ip.s_addr)? "incoming":"outgoing");
+        fprintf(stdout,"ID number: %u\n", htonl(info->ip_hdr->id));
+        fprintf(stdout,"Sequence number: %u\n", htonl(info->tcp_hdr->sequence_num));
+        fprintf(stdout,"Acknowledgement number: %u\n", htonl(info->tcp_hdr->ack_num));
 #endif
 
-		uint8_t incoming = (info->ip_hdr->src.s_addr != observed->src_ip.s_addr)? 1 : 0;
-		uint32_t seq_num = htonl(info->tcp_hdr->sequence_num);
-		uint32_t expected_seq = (incoming)? observed->downstream_seq_num : observed->upstream_seq_num;
+        uint8_t incoming = (info->ip_hdr->src.s_addr != observed->src_ip.s_addr)? 1 : 0;
+        uint32_t seq_num = htonl(info->tcp_hdr->sequence_num);
+        uint32_t expected_seq = (incoming)? observed->downstream_seq_num : observed->upstream_seq_num;
 #ifdef DEBUG
-		fprintf(stdout,"Expected sequence number: %u\n", expected_seq);
+        fprintf(stdout,"Expected sequence number: %u\n", expected_seq);
 #endif
 
-		/* Remove acknowledged data from queue after TCP window is exceeded */
+        /* Remove acknowledged data from queue after TCP window is exceeded */
         update_window_expiration(observed, info);
 
-		/* fill with retransmit data, process new data */
-		uint32_t data_to_fill;
-		uint32_t data_to_process;
+        /* fill with retransmit data, process new data */
+        uint32_t data_to_fill;
+        uint32_t data_to_process;
 
-		if(seq_num > expected_seq){
-			data_to_process = info->app_data_len;
-			data_to_fill = 0;
-		} else if (seq_num + info->app_data_len > expected_seq){
-			data_to_fill = expected_seq - seq_num;
-			data_to_process = seq_num + info->app_data_len - expected_seq;
-		} else {
-			data_to_fill = info->app_data_len;
-			data_to_process = 0;
-		}
+        if(seq_num > expected_seq){
+            data_to_process = info->app_data_len;
+            data_to_fill = 0;
+        } else if (seq_num + info->app_data_len > expected_seq){
+            data_to_fill = expected_seq - seq_num;
+            data_to_process = seq_num + info->app_data_len - expected_seq;
+        } else {
+            data_to_fill = info->app_data_len;
+            data_to_process = 0;
+        }
 
-		uint8_t *p = info->app_data;
+        uint8_t *p = info->app_data;
 
-		if(data_to_fill){ //retransmit
+        if(data_to_fill){ //retransmit
+            printf("Retransmiting data (%u:%u)\n", seq_num, seq_num + info->app_data_len);
             retransmit(observed, info, data_to_fill);
-		}
+        }
 
         p += data_to_fill;
 
-		if(data_to_process){
+        if(data_to_process){
 
-			if(p != info->app_data){
-				printf("UH OH something weird might happen\n");
-			}
+            if(p != info->app_data){
+                printf("UH OH something weird might happen\n");
+            }
 
-			if(observed->application){
+            if(observed->application){
                 if(seq_num > expected_seq){
                     //For now, enters into FORFEIT state
                     //TODO: change upstream behaviour to try to mask slitheen hdr
@@ -241,21 +262,20 @@ void process_packet(pcap_t *handle, const struct pcap_pkthdr *header, uint8_t *p
                     goto err;
                 }
 
-				replace_packet(observed, info);
-			} else {
+                replace_packet(observed, info);
+            } else {
                 //We're still in the TLS handshake; hold packets misordered packets
 
                 if(seq_num > expected_seq){
                     //Delay and process later
                     frame *new_frame = ecalloc(1, sizeof(frame));
-                    new_frame->handle = handle;
+                    new_frame->iargs = iargs;
                     new_frame->packet = packet;
                     new_frame->header = header;
                     new_frame->seq_num = seq_num;
                     new_frame->next = NULL;
                     frame_queue *queue = (incoming) ? observed->ds_frame_queue : observed->us_frame_queue;
-
-                    printf("Used frame queue\n");
+                    printf("Delay processing of frame (seq = %u )\n", seq_num);
 
                     //add to end of list
                     if(queue->first_frame == NULL){
@@ -270,35 +290,37 @@ void process_packet(pcap_t *handle, const struct pcap_pkthdr *header, uint8_t *p
 
                     free(info);
                     observed->ref_ctr--;
+                    printf("Misordered packet. %p ref_ctr %d\n", observed, observed->ref_ctr);
+
                     return; //TODO: fix terrible spaghetti returns
                 }
 
-				/* Pass data to packet chain */
-				if(observed->stall){
+                /* Pass data to packet chain */
+                if(observed->stall){
 
-				}
-				if(add_packet(observed, info)){//removed_flow
-					goto err;
-				}
-			}
+                }
+                if(add_packet(observed, info)){//removed_flow
+                    goto err;
+                }
+            }
 
-			/* Update TCP state */
-			if(info->tcp_hdr->flags & (FIN | RST) ){
-				/* Remove flow from table, connection ended */
-				remove_flow(observed);
-				goto err;
-			}
+            /* Update TCP state */
+            if(info->tcp_hdr->flags & (FIN | RST) ){
+                /* Remove flow from table, connection ended */
+                remove_flow(observed);
+                goto err;
+            }
 
-			/* add packet to application data queue */
+            /* add packet to application data queue */
             save_packet(observed, info);
-		}
+        }
         
 
         /*process and release held frames with current sequence numbers*/
         frame_queue *queue = (incoming) ? observed->ds_frame_queue : observed->us_frame_queue;
         frame *first = queue->first_frame;
         frame *prev = queue->first_frame;
-		expected_seq = (incoming)? observed->downstream_seq_num : observed->upstream_seq_num;
+        expected_seq = (incoming)? observed->downstream_seq_num : observed->upstream_seq_num;
 
         while (first != NULL){
 
@@ -309,7 +331,8 @@ void process_packet(pcap_t *handle, const struct pcap_pkthdr *header, uint8_t *p
                 } else {
                     prev->next = first->next;
                 }
-                process_packet(handle, first->header, first->packet);
+                printf("Now processing frame (seq = %u )\n", first->seq_num);
+                process_packet(iargs, first->header, first->packet);
                 free(first);
                 first = queue->first_frame;
                 prev = queue->first_frame;
@@ -319,13 +342,14 @@ void process_packet(pcap_t *handle, const struct pcap_pkthdr *header, uint8_t *p
             }
         }
 
-		observed->ref_ctr--;
-	}
+        observed->ref_ctr--;
+        printf("Finished processing packet. %p ref_ctr %d\n", observed, observed->ref_ctr);
+    }
 
 err:
-	free(info);//Note: don't free this while a thread is using it
+    free(info);//Note: don't free this while a thread is using it
 
-    inject_packet(handle, header, packet);
+    inject_packet(iargs, header, packet);
 
     return;
 

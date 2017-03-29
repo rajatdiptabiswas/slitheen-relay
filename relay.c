@@ -80,7 +80,6 @@ int replace_packet(flow *f, struct packet_info *info){
 		/* if incoming, replace with data from queue */
 		process_downstream(f, offset, info);
 
-
 #ifdef DEBUG2
 		uint8_t *p = (uint8_t *) info->tcp_hdr;
 		fprintf(stdout, "ip hdr length: %d\n", htons(info->ip_hdr->len));
@@ -914,23 +913,28 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 					f->outbox = emalloc(record_len+1);
 					f->outbox_len = record_len;
 					f->outbox_offset = 0;
-					fill_with_downstream(f, f->outbox + EVP_GCM_TLS_EXPLICIT_IV_LEN , record_len - (EVP_GCM_TLS_EXPLICIT_IV_LEN+ 16));
+					if(!fill_with_downstream(f, f->outbox + EVP_GCM_TLS_EXPLICIT_IV_LEN , record_len - (EVP_GCM_TLS_EXPLICIT_IV_LEN+ 16))){
 
-					//encrypt (not a re-encryption)
-					int32_t n = encrypt(f, f->outbox, f->outbox,
-									record_len - 16, 1,
-									record_hdr->type, 1, 0);
-					if(n < 0){
-						fprintf(stdout,"outbox encryption failed\n");
-					} else {
-						
-						memcpy(p, f->outbox, remaining_packet_len);
-						changed = 1;
-						increment_ctr = 0;
-						f->outbox_len -= remaining_packet_len;
-						f->outbox_offset += remaining_packet_len;
-					}
-
+                                            //encrypt (not a re-encryption)
+                                            int32_t n = encrypt(f, f->outbox, f->outbox,
+                                                                            record_len - 16, 1,
+                                                                            record_hdr->type, 1, 0);
+                                            if(n < 0){
+                                                    fprintf(stdout,"outbox encryption failed\n");
+                                            } else {
+                                                    
+                                                    memcpy(p, f->outbox, remaining_packet_len);
+                                                    changed = 1;
+                                                    increment_ctr = 0;
+                                                    f->outbox_len -= remaining_packet_len;
+                                                    f->outbox_offset += remaining_packet_len;
+                                            }
+                                        } else { //failed to fill with downstream data, client unknown
+                                            free(f->outbox);
+                                            f->outbox = NULL;
+                                            f->outbox_len = 0;
+                                            f->replace_response = 0;
+                                        }
 				}
 
 				if(f->remaining_response_len == 0){

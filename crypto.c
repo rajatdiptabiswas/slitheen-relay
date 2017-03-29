@@ -845,6 +845,7 @@ err:
 	free(pre_master_secret);
 	if(dh_srvr != NULL){
 		DH_free(dh_srvr);
+                f->dh = NULL;
 	}
 	if(dh_clnt != NULL) {
 		DH_free(dh_clnt);
@@ -1504,6 +1505,7 @@ void check_handshake(struct packet_info *info){
 #endif
 
 				flow_ptr->ref_ctr--;
+                                printf("Flow added. %p ref_ctr %d\n", flow_ptr, flow_ptr->ref_ctr);
 
 			} else { /* else update saved flow with new key and random nonce */
 				for(int i=0; i<16; i++){
@@ -1512,6 +1514,7 @@ void check_handshake(struct packet_info *info){
 
 				memcpy(flow_ptr->client_random, hello_rand, SSL3_RANDOM_SIZE);
 				flow_ptr->ref_ctr--;
+                                printf("Flow updated in check_flow. %p ref_ctr %d\n", flow_ptr, flow_ptr->ref_ctr);
 			}
 
 		}

@@ -30,9 +30,10 @@
 #include "relay.h"
 #include "util.h"
 
+#define DEBUG_HS
+
 static flow_table *table;
 static session_cache *sessions;
-data_queue *downstream_queue;
 client_table *clients;
 
 sem_t flow_table_lock;
@@ -69,6 +70,7 @@ flow *add_flow(struct packet_info *info) {
 	new_flow->dst_port = info->tcp_hdr->dst_port;
 
 	new_flow->ref_ctr = 1;
+        printf("Adding new flow (%p ref ctr %d)\n", new_flow, 1);
 	new_flow->removed = 0;
 
 	new_flow->upstream_app_data = emalloc(sizeof(app_data_queue));
@@ -97,14 +99,16 @@ flow *add_flow(struct packet_info *info) {
 	new_flow->resume_session = 0;
 	new_flow->current_session = NULL;
 
+        new_flow->us_hs_queue = init_queue();
+        new_flow->ds_hs_queue = init_queue();
+
 	new_flow->us_packet_chain = emalloc(sizeof(packet_chain));
-	
 	new_flow->us_packet_chain->expected_seq_num = ntohl(info->tcp_hdr->sequence_num);
 	new_flow->us_packet_chain->record_len = 0;
 	new_flow->us_packet_chain->remaining_record_len = 0;
 	new_flow->us_packet_chain->first_packet = NULL;
-	new_flow->ds_packet_chain = emalloc(sizeof(packet_chain));
 
+	new_flow->ds_packet_chain = emalloc(sizeof(packet_chain));
 	new_flow->ds_packet_chain->expected_seq_num = ntohl(info->tcp_hdr->ack_num);
 	new_flow->ds_packet_chain->record_len = 0;
 	new_flow->ds_packet_chain->remaining_record_len = 0;
@@ -125,7 +129,7 @@ flow *add_flow(struct packet_info *info) {
 	new_flow->replace_response = 0;
 
 	new_flow->ecdh = NULL;
-
+	new_flow->dh = NULL;
 
 	new_flow->finish_md_ctx = EVP_MD_CTX_create();
 	const EVP_MD *md = EVP_sha384();
@@ -384,6 +388,7 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 
 					if((f->in_encrypted == 2) && (f->out_encrypted == 2)){
 						f->application = 1;
+                                                printf("Handshake complete!\n");
 					}
 
 					break;
@@ -461,22 +466,23 @@ err:
  */
 int remove_flow(flow *f) {
 
-	sem_wait(&flow_table_lock);
-	//decrement reference counter
-	f->ref_ctr--;
-	if(f->ref_ctr){ //if there are still references to f, wait to free it
-		printf("Cannot free, still %d reference(s)\n", f->ref_ctr);
-		f->removed = 1; 
-		sem_post(&flow_table_lock);
-		return 0;
-	}
+    sem_wait(&flow_table_lock);
+    //decrement reference counter
+    f->ref_ctr--;
+    if(f->ref_ctr){ //if there are still references to f, wait to free it
+        printf("Cannot free %p, still %d reference(s)\n", f, f->ref_ctr);
+        f->removed = 1; 
+        sem_post(&flow_table_lock);
+        return 0;
+    }
 
-	if(f->removed)
-		printf("Trying again to free\n");
+    if(f->removed)
+        printf("Trying again to free\n");
 
     frame *first_frame = f->us_frame_queue->first_frame;
     while(first_frame != NULL){
-        inject_packet(first_frame->handle, first_frame->header, first_frame->packet);
+        printf("Injecting delayed frame (seq = %u )\n", first_frame->seq_num);
+        inject_packet(first_frame->iargs, first_frame->header, first_frame->packet);
         frame *tmp = first_frame->next;
         free(first_frame);
         first_frame = tmp;
@@ -485,7 +491,8 @@ int remove_flow(flow *f) {
 
     first_frame = f->ds_frame_queue->first_frame;
     while(first_frame != NULL){
-        inject_packet(first_frame->handle, first_frame->header, first_frame->packet);
+        printf("Injecting delayed frame (seq = %u )\n", first_frame->seq_num);
+        inject_packet(first_frame->iargs, first_frame->header, first_frame->packet);
         frame *tmp = first_frame->next;
         free(first_frame);
         first_frame = tmp;
@@ -510,6 +517,19 @@ int remove_flow(flow *f) {
 		tmp = f->downstream_app_data->first_packet;
 	}
 	free(f->downstream_app_data);
+
+    if(f->ds_hs_queue != NULL){
+        remove_queue(f->ds_hs_queue);
+    }
+    if(f->us_hs_queue != NULL){
+        remove_queue(f->us_hs_queue);
+    }
+
+    //free partial record headers
+    if(f->partial_record_header_len > 0){
+        f->partial_record_header_len = 0;
+        free(f->partial_record_header);
+    }
 
 	//Clean up cipher ctxs
 	EVP_MD_CTX_cleanup(f->finish_md_ctx);
@@ -536,6 +556,10 @@ int remove_flow(flow *f) {
 	if(f->ecdh != NULL){
 		EC_KEY_free(f->ecdh);
 	}
+
+    if(f->dh != NULL){
+        DH_free(f->dh);
+    }
 
 	if(f->current_session != NULL && f->resume_session == 1){
 		if( f->current_session->session_ticket != NULL){
@@ -675,7 +699,8 @@ flow *check_flow(struct packet_info *info){
 	}
 
 	if(found != NULL){
-		found->ref_ctr++;
+            found->ref_ctr++;
+            printf("Acquiring flow (%p ref ctr %d)\n", found, found->ref_ctr);
 	}
 
 	sem_post(&flow_table_lock);
@@ -1037,198 +1062,179 @@ int save_session_ticket(flow *f, uint8_t *hs, uint32_t len){
  * expected sequence number
  */
 int add_packet(flow *f, struct packet_info *info){
-	if (info->tcp_hdr == NULL || info->app_data_len <= 0){
-		return 0;
-	}
+    if (info->tcp_hdr == NULL || info->app_data_len <= 0){
+        return 0;
+    }
 
-	packet *new_packet = emalloc(sizeof(packet));
+    packet *new_packet = emalloc(sizeof(packet));
 
-	new_packet->seq_num = ntohl(info->tcp_hdr->sequence_num);
-	new_packet->len = info->app_data_len;
+    new_packet->seq_num = ntohl(info->tcp_hdr->sequence_num);
+    new_packet->len = info->app_data_len;
 
-	uint8_t *packet_data = emalloc(new_packet->len);
-	memcpy(packet_data, info->app_data, new_packet->len);
+    uint8_t *packet_data = emalloc(new_packet->len);
+    memcpy(packet_data, info->app_data, new_packet->len);
 
-	new_packet->data = packet_data;
-	new_packet->next = NULL;
-	uint8_t incoming = (info->ip_hdr->src.s_addr == f->src_ip.s_addr) ? 0 : 1;
-	packet_chain *chain = 
-		(info->ip_hdr->src.s_addr == f->src_ip.s_addr) ? f->us_packet_chain : f->ds_packet_chain;
+    new_packet->data = packet_data;
+    new_packet->next = NULL;
+    uint8_t incoming = (info->ip_hdr->src.s_addr == f->src_ip.s_addr) ? 0 : 1;
+    packet_chain *chain = (incoming) ? f->ds_packet_chain : f->us_packet_chain;
+    queue *packet_queue = (incoming) ? f->ds_hs_queue : f->us_hs_queue;
 
-	if(new_packet->seq_num < chain->expected_seq_num){
-		//see if this packet contains any data we are missing
+    if(new_packet->seq_num < chain->expected_seq_num){
+        //see if this packet contains any data we are missing
         //TODO: figure out how/why this happens and what should follow
-		printf("ERROR: Received replayed packet O.o\n");
+        printf("ERROR: Received replayed packet O.o\n");
 
-		free(new_packet->data);
-		free(new_packet);
+        free(new_packet->data);
+        free(new_packet);
+        remove_flow(f);
+        return 1;
 
-    } else {//new_packet->seq_num >= chain->expected_seq_num
+    }
         
-        if(new_packet->seq_num > chain->expected_seq_num) {
-            printf("ERROR: Received future packet O.o\n");
+    if(new_packet->seq_num > chain->expected_seq_num) {
+        printf("ERROR: Received future packet O.o\n");
+        free(new_packet->data);
+        free(new_packet);
+        remove_flow(f);
+        return 1;
+    }
+    
+    //temporary: see if it's the only packet, if so is new record
+    if(peek(packet_queue, 0) == NULL){
+        if(new_packet->seq_num == chain->expected_seq_num){
+            const struct record_header *record_hdr = (struct record_header *) new_packet->data;
+            chain->record_len = RECORD_LEN(record_hdr)+RECORD_HEADER_LEN;
+            chain->remaining_record_len = chain->record_len;
         }
-	
-		//Find appropriate place in chain
-        //TODO: this can be simplified; slitheen-proxy code already takes care of it
-		packet *previous = NULL;
-		packet *next = chain->first_packet;
-		while(next != NULL && (next->seq_num <= new_packet->seq_num)){
-			previous = next;
-			next = next->next;
-		}
+    }
 
-		//place packet after current
-		if(previous == NULL){
-			//goes at the beginning of chain
-			new_packet->next = chain->first_packet;
-			chain->first_packet = new_packet;
+    //append packet to queue
+    enqueue(packet_queue, new_packet);
 
-			//if this is a new record, find lengths
-			if(new_packet->seq_num == chain->expected_seq_num){
-				const struct record_header *record_hdr = (struct record_header *) new_packet->data;
-				chain->record_len = RECORD_LEN(record_hdr)+RECORD_HEADER_LEN;
-				chain->remaining_record_len = chain->record_len;
-			}
-			
-		} else {
-			new_packet->next = next;
-			previous->next = new_packet;
-		}
 
-		if(new_packet->seq_num == chain->expected_seq_num){
-			chain->expected_seq_num += new_packet->len;
+    chain->expected_seq_num += new_packet->len;
 
-			uint32_t record_offset = 0; //offset into record for updating info with any changes
-			uint32_t info_offset = 0; //offset into info for updating with changes
-			uint32_t info_len = 0; //number of bytes that possibly changed
+    uint32_t record_offset = 0; //offset into record for updating info with any changes
+    uint32_t info_offset = 0; //offset into info for updating with changes
+    uint32_t info_len = 0; //number of bytes that possibly changed
 
-			//while there is still data left:
-			uint32_t available_data = new_packet->len;
+    //while there is still data left:
+    uint32_t available_data = new_packet->len;
 
-			while(available_data > 0){
+    while(available_data > 0){
 
-				//if full record, give to update_flow
-				if(chain->remaining_record_len <= new_packet->len){
-					chain->remaining_record_len = 0;
-					uint8_t *record = emalloc(chain->record_len);
-					uint32_t record_len = chain->record_len;
-					uint32_t tmp_len = chain->record_len;
+        //if full record, give to update_flow
+        if(chain->remaining_record_len <= new_packet->len){//we have enough to make a record
+            chain->remaining_record_len = 0;
+            uint8_t *record = emalloc(chain->record_len);
+            uint32_t record_len = chain->record_len;
+            uint32_t tmp_len = chain->record_len;
 
-					packet *next = chain->first_packet;
-					while(tmp_len > 0){
-						if(tmp_len >= next->len){
-							memcpy(record+chain->record_len - tmp_len, next->data, next->len);
-							if(next == new_packet){
-								new_packet = NULL;
-								record_offset = chain->record_len - tmp_len;
-								info_len = next->len;
-							}
+            packet *next = peek(packet_queue, 0);
+            while(tmp_len > 0){
+                if(tmp_len >= next->len){
+                    memcpy(record+chain->record_len - tmp_len, next->data, next->len);
+                    if(next == new_packet){
+                        new_packet = NULL;//TODO: why?
+                        record_offset = chain->record_len - tmp_len;
+                        info_len = next->len;
+                    }
 
-							tmp_len -= next->len;
-							chain->first_packet = next->next;
-							free(next->data);
-							free(next);
-							next = chain->first_packet;
-							available_data = 0;
-						} else {
-							memcpy(record+chain->record_len - tmp_len, next->data, tmp_len);
-							if(next == new_packet){
-								record_offset = chain->record_len - tmp_len;
-								info_len = tmp_len;
-							}
+                    tmp_len -= next->len;
+                    //remove packet from queue
+                    next = dequeue(packet_queue);
+                    free(next->data);
+                    free(next);
+                    next = peek(packet_queue, 0); //TODO: Do we need this???
+                    available_data = 0;
 
-							memmove(next->data, next->data+tmp_len, next->len - tmp_len);
-							next->len -= tmp_len;
-							available_data -= tmp_len;
-							tmp_len = 0;
-							//this is going to be a new record
-							const struct record_header *record_hdr = (struct record_header *) next->data;
-							chain->record_len = RECORD_LEN(record_hdr)+RECORD_HEADER_LEN;
-							chain->remaining_record_len = chain->record_len;
+                } else { //didn't use up entire packet
+
+                    memcpy(record+chain->record_len - tmp_len, next->data, tmp_len);
+                    if(next == new_packet){//TODO: opposite shouldn't happen?
+                        record_offset = chain->record_len - tmp_len;
+                        info_len = tmp_len;
+                    }
+
+                    memmove(next->data, next->data+tmp_len, next->len - tmp_len);
+                    next->len -= tmp_len;
+                    available_data -= tmp_len;
+                    tmp_len = 0;
+
+                    //Last part of packet is a new record
+                    const struct record_header *record_hdr = (struct record_header *) next->data;
+                    chain->record_len = RECORD_LEN(record_hdr)+RECORD_HEADER_LEN;
+                    chain->remaining_record_len = chain->record_len;
 #ifdef DEBUG
-							printf("Found record of type %d\n", record_hdr->type);
-							fflush(stdout);
+                    printf("Found record of type %d\n", record_hdr->type);
+                    fflush(stdout);
 #endif
 
-						}
-					}
-					//if handshake is complete, send to relay code
-					
-					if(f->application == 1){
-						//update packet info and send to replace_packet
-						struct packet_info *copy_info = copy_packet_info(info);
-						copy_info->app_data = record;
-						copy_info->app_data_len = record_len;
-						replace_packet(f, copy_info);
-						free(copy_info->app_data);
-						free(copy_info);
-					} else {
-						if(update_flow(f, record, incoming)){
-							free(record);
-							return 1;//error occurred and flow was removed
-						}
+                }
+            }
 
-						//check to see if server finished message received
-						if(f->in_encrypted ==2){
+            //if handshake is complete, send to relay code
+            if(f->application == 1){
+                //update packet info and send to replace_packet
+                struct packet_info *copy_info = copy_packet_info(info);
+                copy_info->app_data = record;
+                copy_info->app_data_len = record_len;
+                replace_packet(f, copy_info);
+                free(copy_info->app_data);
+                free(copy_info);
+            } else {
+                if(update_flow(f, record, incoming)){
+                    free(record);
+                    return 1;//error occurred and flow was removed
+                }
+
+                if(f->in_encrypted ==2){
+                    //if server finished message was received, copy changes back to packet
 
 #ifdef DEBUG
-							printf("Replacing info->data with finished message (%d bytes).\n", info_len);
+                    printf("Replacing info->data with finished message (%d bytes).\n", info_len);
 
-							printf("Previous bytes:\n");
-							for(int i=0; i<info_len; i++){
-								printf("%02x ", info->app_data[info_offset+i]);
-							}
-							printf("\n");
-							printf("New bytes:\n");
-							for(int i=0; i<info_len; i++){
-								printf("%02x ", record[record_offset+i]);
-							}
-							printf("\n");
-							printf("SLITHEEN: Previous packet contents:\n");
-							for(int i=0; i< info->app_data_len; i++){
-								printf("%02x ", info->app_data[i]);
-							}
-							printf("\n");
+                    printf("Previous bytes:\n");
+                    for(int i=0; i<info_len; i++){
+                        printf("%02x ", info->app_data[info_offset+i]);
+                    }
+                    printf("\n");
+                    printf("New bytes:\n");
+                    for(int i=0; i<info_len; i++){
+                        printf("%02x ", record[record_offset+i]);
+                    }
+                    printf("\n");
+                    printf("SLITHEEN: Previous packet contents:\n");
+                    for(int i=0; i< info->app_data_len; i++){
+                        printf("%02x ", info->app_data[i]);
+                    }
+                    printf("\n");
 #endif
-							memcpy(info->app_data+info_offset, record+record_offset, info_len);
+                    memcpy(info->app_data+info_offset, record+record_offset, info_len);
 #ifdef DEBUG
-							printf("SLITHEEN: Current packet contents:\n");
-							for(int i=0; i< info->app_data_len; i++){
-								printf("%02x ", info->app_data[i]);
-							}
-							printf("\n");
+                    printf("SLITHEEN: Current packet contents:\n");
+                    for(int i=0; i< info->app_data_len; i++){
+                        printf("%02x ", info->app_data[i]);
+                    }
+                    printf("\n");
 #endif
+                    //update TCP checksum
+                    tcp_checksum(info);
+                }
+                free(record);
 
-							//update TCP checksum
-							tcp_checksum(info);
-						}
-						free(record);
+                if(new_packet != NULL){
+                    info_offset += info_len;
+                }
 
-						if(new_packet != NULL){
-							info_offset += info_len;
-						}
+            }
+        } else {//can't make a full record yet
+            chain->remaining_record_len -= new_packet->len;
+            available_data = 0;
+        }
+    } //exhausted new packet len
 
-					}
-				} else {
-					chain->remaining_record_len -= new_packet->len;
-					//see if this packet filled a hole
-					new_packet = new_packet->next;
-					if(new_packet != NULL &&
-							new_packet->seq_num == chain->expected_seq_num){
-						available_data = new_packet->len;
-						chain->expected_seq_num += new_packet->len;
-					} else {
-						available_data = 0;
-					}
-				}
-			}
-		
-		} else {//
-			//add to end of packet_chain
-			printf("Missing packet (expected %d, received %d)\n", chain->expected_seq_num, new_packet->seq_num);
-		}
-	}
-	return 0;
+    return 0;
 
 }
