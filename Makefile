@@ -15,8 +15,3 @@ clean:
 veryclean: clean
 	-rm $(TARGETS)
 
-#DEPS=ptwist.h rserv.h flow.h slitheen.h 
-#
-#%.o: %.c $(DEPS)
-#	gcc -g -Wall -std=c99 -c -o $@ $<
-
