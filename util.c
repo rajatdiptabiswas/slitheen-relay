@@ -75,6 +75,10 @@ queue *init_queue(){
  * Function to append a struct to the end of a list
  */
 void enqueue(queue *list, void *data){
+    //Do not allow appending NULL data
+    if(data == NULL){
+        return;
+    }
     element *new_elem = emalloc(sizeof(element));
     new_elem->data = data;
     new_elem->next = NULL;
