@@ -1469,6 +1469,13 @@ void check_handshake(struct packet_info *info){
 
 		/* check tag*/ 
 		res = check_tag(key, privkey, p, (const byte *)"context", 7);
+
+                if(res){
+                    printf("No tag found\n");
+                } else {
+                    printf("Tag found!\n");
+                }
+
 		if (!res) {
 
 #ifdef DEBUG
