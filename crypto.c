@@ -1468,14 +1468,10 @@ void check_handshake(struct packet_info *info){
 		fclose(fp);
 
 		/* check tag*/ 
-		res = check_tag(key, privkey, p, (const byte *)"context", 7);
-
-                if(res){
-                    printf("No tag found\n");
-                } else {
-                    printf("Tag found!\n");
-                }
-
+                uint8_t context[4 + SSL3_RANDOM_SIZE - PTWIST_TAG_BYTES];
+                memcpy(context, &info->ip_hdr->dst.s_addr, 4);
+                memcpy(context + 4, hello_rand, SSL3_RANDOM_SIZE - PTWIST_TAG_BYTES);
+		res = check_tag(key, privkey, p, (const byte *)context, sizeof(context));
 		if (!res) {
 
 #ifdef DEBUG
