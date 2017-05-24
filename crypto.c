@@ -1545,7 +1545,7 @@ int check_tag(byte key[16], const byte privkey[PTWIST_BYTES],
 
     /* Create the hash tag keys */
     memmove(sharedsec+PTWIST_BYTES, context, context_len);
-    SHA256(sharedsec, PTWIST_BYTES, taghashout);
+    SHA256(sharedsec, PTWIST_BYTES + context_len, taghashout);
 
 #if PTWIST_PUZZLE_STRENGTH > 0
     /* Construct the proposed solution to the puzzle */
