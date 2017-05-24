@@ -166,8 +166,8 @@ void inject_packet(struct inject_args *iargs, const struct pcap_pkthdr *header, 
     pcap_t *handle = iargs->write_dev;
 
     //write back out to the MAC ADDR it came in on
-    memmove(packet, packet+ETHER_ADDR_LEN, ETHER_ADDR_LEN);
-    memcpy(packet+ETHER_ADDR_LEN, iargs->mac_addr, ETHER_ADDR_LEN);
+    //memmove(packet, packet+ETHER_ADDR_LEN, ETHER_ADDR_LEN);
+    //memcpy(packet+ETHER_ADDR_LEN, iargs->mac_addr, ETHER_ADDR_LEN);
 
     if((pcap_inject(handle, packet, header->len)) < 0 ){
         fprintf(stderr, "Error: %s\n", pcap_geterr(handle));
@@ -212,9 +212,10 @@ void process_packet(struct inject_args *iargs, const struct pcap_pkthdr *header,
 
     //Ignore non-TCP packets (shouldn't actually get any)
     if((info->ip_hdr == NULL) || (info->tcp_hdr == NULL)){
-        free(info);
-        free(packet);
-        return;
+        //free(info);
+        //free(packet);
+        //return;
+        goto err;
     }
 
     /* Checks to see if this is a possibly tagged hello msg */
