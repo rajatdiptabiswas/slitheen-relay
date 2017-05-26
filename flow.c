@@ -141,10 +141,6 @@ flow *add_flow(struct packet_info *info) {
 	new_flow->ecdh = NULL;
 	new_flow->dh = NULL;
 
-	new_flow->finish_md_ctx = EVP_MD_CTX_create();
-	const EVP_MD *md = EVP_sha384();
-	EVP_DigestInit_ex(new_flow->finish_md_ctx, md, NULL);
-
 	new_flow->cipher = NULL;
 	new_flow->clnt_read_ctx = NULL;
 	new_flow->clnt_write_ctx = NULL;
@@ -241,11 +237,6 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 #ifdef DEBUG_HS
 					printf("Received tagged client hello (%x:%d -> %x:%d)\n", f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port));
 #endif
-					if(update_finish_hash(f, p)){
-						fprintf(stderr, "Error updating finish has with CLNT_HELLO msg\n");
-						remove_flow(f);
-						goto err;
-					}
 					if(check_session(f, p, HANDSHAKE_MESSAGE_LEN(handshake_hdr))){
 						fprintf(stderr, "Error checking session, might cause problems\n");
 					}
@@ -269,12 +260,6 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 						remove_flow(f);
 						goto err;
 					}
-
-					if(update_finish_hash(f, p)){
-						fprintf(stderr, "Error updating finish hash with SRVR_HELLO msg\n");
-						remove_flow(f);
-						goto err;
-					}
 					break;
 				case TLS_NEW_SESS:
 #ifdef DEBUG_HS
@@ -283,35 +268,16 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 					if(save_session_ticket(f, p, HANDSHAKE_MESSAGE_LEN(handshake_hdr))){
 						fprintf(stderr, "Failed to save session ticket\n");
 					}
-					
-					if(update_finish_hash(f, p)){
-						fprintf(stderr, "Error updating finish hash with NEW_SESS msg\n");
-						remove_flow(f);
-						goto err;
-					}
-					
 					break;
 				case TLS_CERT:
 #ifdef DEBUG_HS
 					printf("Received cert\n");
 #endif
-					if(update_finish_hash(f, p)){
-						fprintf(stderr, "Error updating finish hash with CERT msg\n");
-						remove_flow(f);
-						goto err;
-					}
-
 					break;
 				case TLS_SRVR_KEYEX:
 #ifdef DEBUG_HS
 					printf("Received server keyex\n");
 #endif
-					if(update_finish_hash(f, p)){
-						fprintf(stderr, "Error updating finish hash with SRVR_KEYEX msg\n");
-						remove_flow(f);
-						goto err;
-					}
-
 					if(extract_parameters(f, p)){
 						printf("Error extracting params\n");
 						remove_flow(f);
@@ -328,47 +294,22 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 					break;
 
 				case TLS_CERT_REQ:
-
-					if(update_finish_hash(f, p)){
-						fprintf(stderr, "Error updating finish hash with CERT_REQ msg\n");
-						remove_flow(f);
-						goto err;
-					}
-
 					break;
 				case TLS_SRVR_HELLO_DONE:
 #ifdef DEBUG_HS
 					printf("Received server hello done\n");
 #endif
-					if(update_finish_hash(f, p)){
-						fprintf(stderr, "Error updating finish hash with HELLO_DONE msg\n");
-						remove_flow(f);
-						goto err;
-					}
-
 					break;
 				case TLS_CERT_VERIFY:
 #ifdef DEBUG_HS
 					printf("received cert verify\n");
 #endif
-					if(update_finish_hash(f, p)){
-						fprintf(stderr, "Error updating finish hash with CERT_VERIFY msg\n");
-						remove_flow(f);
-						goto err;
-					}
-
 					break;
 
 				case TLS_CLNT_KEYEX:
 #ifdef DEBUG_HS
 					printf("Received client key exchange\n");
 #endif
-					if(update_finish_hash(f, p)){
-						fprintf(stderr, "Error updating finish hash with CLNT_KEYEX msg\n");
-						remove_flow(f);
-						goto err;
-					}
-
 					break;
 				case TLS_FINISHED:
 #ifdef DEBUG_HS
@@ -547,10 +488,6 @@ int remove_flow(flow *f) {
     }
 
 	//Clean up cipher ctxs
-	EVP_MD_CTX_cleanup(f->finish_md_ctx);
-	if(f->finish_md_ctx != NULL){
-		EVP_MD_CTX_destroy(f->finish_md_ctx);
-	}
 	if(f->clnt_read_ctx != NULL){
 		EVP_CIPHER_CTX_cleanup(f->clnt_read_ctx);
 		OPENSSL_free(f->clnt_read_ctx);

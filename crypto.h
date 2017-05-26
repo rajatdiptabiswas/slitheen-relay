@@ -51,7 +51,6 @@ int PRF(flow *f, uint8_t *secret, int32_t secret_len,
 		uint8_t *seed4, int32_t seed4_len,
 		uint8_t *output, int32_t output_len);
 
-int update_finish_hash(flow *f, uint8_t *hs);
 int mark_finished_hash(flow *f, uint8_t *hs);
 int init_ciphers(flow *f);
 void generate_client_super_keys(uint8_t *secret, client *c);

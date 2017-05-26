@@ -168,7 +168,6 @@ typedef struct flow_st {
 	const EVP_MD *message_digest;
 	uint8_t keyex_alg;
 	uint8_t handshake_hash[EVP_MAX_MD_SIZE];
-	EVP_MD_CTX *finish_md_ctx;
 	EVP_CIPHER_CTX *clnt_read_ctx;
 	EVP_CIPHER_CTX *clnt_write_ctx;
 	EVP_CIPHER_CTX *srvr_read_ctx;
