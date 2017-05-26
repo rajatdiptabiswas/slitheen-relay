@@ -501,6 +501,49 @@ int fake_encrypt(flow *f, int32_t incoming){
 }
 	
 
+/** Mark the hash in a downstream TLS finished message
+ *
+ * Changes the finished hash to
+ * SHA256_HMAC_96(shared_key, "SLITHEEN_FINISHED" || old_finished_hash)
+ *
+ * This feature detects and prevents suspicious behaviour in the event
+ * of a MiTM or RAD attack.
+ *
+ * 	Inputs:
+ * 		f: the tagged flow
+ * 		hs: a pointer to the TLS Finished handshake message
+ *
+ * 	Output:
+ * 		0 on success, 1 on failure
+ *              if success, the message pointed to by hs will have
+ *                      been updated
+ */
+int mark_finished_hash(flow *f, uint8_t *hs){
+	HMAC_CTX ctx;
+	uint8_t hmac_output[EVP_MAX_MD_SIZE];
+	unsigned int hmac_output_len;
+
+	// Ensure this is a Finished message, of length 12 bytes
+	if (memcmp(hs, "\x14\x00\x00\x0c", 4)) {
+		return 1;
+	}
+
+	HMAC_CTX_init(&ctx);
+	HMAC_Init_ex(&ctx, f->key, 16, EVP_sha256(), NULL);
+	HMAC_Update(&ctx, (const unsigned char *)SLITHEEN_FINISHED_INPUT_CONST, SLITHEEN_FINISHED_INPUT_CONST_SIZE);
+	HMAC_Update(&ctx, hs+4, 12);
+	HMAC_Final(&ctx, hmac_output, &hmac_output_len);
+	HMAC_CTX_cleanup(&ctx);
+
+	if (hmac_output_len != 32) {
+		return 1;
+	}
+
+	memmove(hs+4, hmac_output, 12);
+
+	return 0;
+}
+
 /** Verifies the hash in a TLS finished message
  *
  * Adds string derived from the client-relay shared secret to the finished hash.

@@ -42,8 +42,6 @@
 #include "relay.h"
 #include "util.h"
 
-#define DEBUG_HS
-
 static flow_table *table;
 static session_cache *sessions;
 client_table *clients;
@@ -376,8 +374,13 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 #ifdef DEBUG_HS
 					printf("Received finished (%d) (%x:%d -> %x:%d)\n", incoming, f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port));
 #endif
-					if(verify_finish_hash(f,p, incoming)){
-						fprintf(stderr, "Error verifying finished hash\n");
+					if(!incoming) {
+					    // We only care about incoming
+					    // Finished messages
+					    break;
+					}
+					if(mark_finished_hash(f, p)){
+						fprintf(stderr, "Error marking finished hash\n");
 						remove_flow(f);
 						goto err;
 					}

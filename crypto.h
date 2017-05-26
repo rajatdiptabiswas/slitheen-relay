@@ -52,7 +52,7 @@ int PRF(flow *f, uint8_t *secret, int32_t secret_len,
 		uint8_t *output, int32_t output_len);
 
 int update_finish_hash(flow *f, uint8_t *hs);
-int verify_finish_hash(flow *f, uint8_t *p, int32_t incoming);
+int mark_finished_hash(flow *f, uint8_t *hs);
 int init_ciphers(flow *f);
 void generate_client_super_keys(uint8_t *secret, client *c);
 int super_encrypt(client *c, uint8_t *data, uint32_t len);
@@ -66,8 +66,8 @@ int check_tag(byte key[16], const byte privkey[PTWIST_BYTES],
 #define SLITHEEN_KEYGEN_CONST "SLITHEEN_KEYGEN"
 #define SLITHEEN_KEYGEN_CONST_SIZE 15
 
-#define SLITHEEN_FINISHED_INPUT_CONST "SLITHEEN_FINISH"
-#define SLITHEEN_FINISHED_INPUT_CONST_SIZE 15
+#define SLITHEEN_FINISHED_INPUT_CONST "SLITHEEN_FINISHED"
+#define SLITHEEN_FINISHED_INPUT_CONST_SIZE 17
 
 #define SLITHEEN_SUPER_SECRET_SIZE 16 //extracted from slitheen ID tag
 #define SLITHEEN_SUPER_CONST "SLITHEEN_SUPER_ENCRYPT"
