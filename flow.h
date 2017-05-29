@@ -50,6 +50,7 @@
 #define TLS_CERT_VERIFY 0x0f
 #define TLS_CLNT_KEYEX 0x10
 #define TLS_FINISHED 0x14
+#define TLS_CERT_STATUS 0x16
 
 struct client_st;
 typedef struct client_st client;

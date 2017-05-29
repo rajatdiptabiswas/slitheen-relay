@@ -191,11 +191,19 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 	switch(record_hdr->type){
 		case HS:
 			p = record;
+#ifdef DEBUG_HS
+                        printf("Received handshake packet  (%x:%d -> %x:%d) (incoming: %d)\n", f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port), incoming);
+                        for(int i=0; i< record_len; i++){
+                            printf("%02x ", p[i]);
+                        }
+                        printf("\n");
+#endif
 			p += RECORD_HEADER_LEN;
+
 
 			if((incoming && f->in_encrypted) || (!incoming && f->out_encrypted)){
 #ifdef DEBUG_HS
-				printf("Decrypting finished (%d bytes) (%x:%d -> %x:%d)\n", record_len - RECORD_HEADER_LEN, f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port));
+				printf("Decrypting finished (%d bytes) (%x:%d -> %x:%d) (incoming: %d)\n", record_len - RECORD_HEADER_LEN, f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port), incoming);
 				printf("Finished ciphertext:\n");
 				for(int i=0; i< record_len; i++){
 					printf("%02x ", record[i]);
@@ -204,7 +212,12 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 #endif
 				int32_t n = encrypt(f, p, p, record_len - RECORD_HEADER_LEN, incoming, 0x16, 0, 0);
 				if(n<=0){
-					printf("Error decrypting finished  (%x:%d -> %x:%d)\n", f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port));
+                                    printf("Error decrypting finished  (%x:%d -> %x:%d) (incoming: %d)\n", f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port), incoming);
+                                    printf("record:\n");
+                                    for(int i=0; i< 12; i++){
+                                            printf("%02x ", p[i]);
+                                    }
+
 				}
 #ifdef DEBUG_HS
 				printf("Finished decrypted: (%x:%d -> %x:%d)\n", f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port));
@@ -274,12 +287,20 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 					printf("Received cert\n");
 #endif
 					break;
+                                case TLS_CERT_STATUS:
+                                        printf("Received certificate status\n");
+                                        break;
 				case TLS_SRVR_KEYEX:
 #ifdef DEBUG_HS
 					printf("Received server keyex\n");
 #endif
 					if(extract_parameters(f, p)){
 						printf("Error extracting params\n");
+                                                printf("Message:\n");
+                                                for(int i=0; i< RECORD_LEN(record_hdr); i++){
+                                                    printf("%02x ", p[i]);
+                                                }
+                                                printf("\n");
 						remove_flow(f);
 						goto err;
 					}
@@ -349,7 +370,7 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 
 					break;
 				default:
-					printf("Error? (%x:%d -> %x:%d)...\n", f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port));
+					printf("Error: unrecognized hs message? (%x:%d -> %x:%d)...\n", f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port));
 					remove_flow(f);
 					goto err;
 			}
@@ -652,7 +673,6 @@ flow *check_flow(struct packet_info *info){
 
 	if(found != NULL){
             found->ref_ctr++;
-            printf("Acquiring flow (%p ref ctr %d)\n", found, found->ref_ctr);
 	}
 
 	sem_post(&flow_table_lock);

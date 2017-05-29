@@ -578,13 +578,13 @@ int compute_master_secret(flow *f){
 			NULL, 0, NULL, 0, NULL, 0,
 			buf, bytes);
 
-	#ifdef DEBUG
-		printf("Generated the following rand bytes: ");
+#ifdef DEBUG_HS
+		printf("Generated the client private key [len: %d]: ", bytes);
 		for(int i=0; i< bytes; i++){
 			printf(" %02x ", buf[i]);
 		}
 		printf("\n");
-	#endif
+#endif
 
 		if (!BN_bin2bn(buf, bytes, priv_key))
 			goto err;
@@ -1364,9 +1364,9 @@ void check_handshake(struct packet_info *info){
 		res = check_tag(key, privkey, p, (const byte *)context, sizeof(context));
 		if (!res) {
 
-#ifdef DEBUG
+#ifdef DEBUG_HS
 			printf("Received tagged flow! (key =");
-			for(i=0; i<16;i++){
+			for(int i=0; i<16;i++){
 			    printf(" %02x", key[i]);
 			}
 			printf(")\n");
