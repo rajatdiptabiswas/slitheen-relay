@@ -657,8 +657,8 @@ int compute_master_secret(flow *f){
 		PRF(f, f->key, 16, (uint8_t *) SLITHEEN_KEYGEN_CONST, SLITHEEN_KEYGEN_CONST_SIZE,
 				NULL, 0, NULL, 0, NULL, 0, buf, bytes);
 
-#ifdef DEBUG
-		printf("Generated the following rand bytes: ");
+#ifdef DEBUG_HS
+		printf("Generated the client private key [len: %d]: ", bytes);
 		for(int i=0; i< bytes; i++){
 			printf("%02x ", buf[i]);
 		}
@@ -691,7 +691,6 @@ int compute_master_secret(flow *f){
 		if(pre_master_len <= 0) {
 			goto err;
 		}
-
 	}
 
 	/*Generate master secret */
@@ -702,7 +701,7 @@ int compute_master_secret(flow *f){
 		memcpy(f->current_session->master_secret, f->master_secret, SSL3_MASTER_SECRET_SIZE);
 	}
 
-#ifdef DEBUG
+#ifdef DEBUG_HS
 	fprintf(stdout, "Premaster Secret:\n");
 	BIO_dump_fp(stdout, (char *)pre_master_secret, pre_master_len);
 	fprintf(stdout, "Client Random:\n");

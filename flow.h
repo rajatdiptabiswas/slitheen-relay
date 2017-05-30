@@ -168,6 +168,7 @@ typedef struct flow_st {
 	const EVP_CIPHER *cipher;
 	const EVP_MD *message_digest;
 	uint8_t keyex_alg;
+        uint8_t extended_master_secret;
 	uint8_t handshake_hash[EVP_MAX_MD_SIZE];
 	EVP_CIPHER_CTX *clnt_read_ctx;
 	EVP_CIPHER_CTX *clnt_write_ctx;
@@ -223,7 +224,8 @@ flow *get_flow(int index);
 
 int init_session_cache (void);
 int verify_session_id(flow *f, uint8_t *hs);
-int check_session(flow *f, uint8_t *hs, uint32_t len);
+int check_extensions(flow *f, uint8_t *hs, uint32_t len);
+int verify_extensions(flow *f, uint8_t *hs, uint32_t len);
 int save_session_id(flow *f, uint8_t *hs);
 int save_session_ticket(flow *f, uint8_t *hs, uint32_t len);
 

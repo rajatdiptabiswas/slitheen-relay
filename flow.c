@@ -106,6 +106,7 @@ flow *add_flow(struct packet_info *info) {
 	new_flow->out_encrypted = 0;
 	new_flow->application = 0;
 	new_flow->stall = 0;
+	new_flow->extended_master_secret = 0;
 	new_flow->resume_session = 0;
 	new_flow->current_session = NULL;
 
@@ -250,7 +251,7 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 #ifdef DEBUG_HS
 					printf("Received tagged client hello (%x:%d -> %x:%d)\n", f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port));
 #endif
-					if(check_session(f, p, HANDSHAKE_MESSAGE_LEN(handshake_hdr))){
+					if(check_extensions(f, p, HANDSHAKE_MESSAGE_LEN(handshake_hdr))){
 						fprintf(stderr, "Error checking session, might cause problems\n");
 					}
 
@@ -268,6 +269,11 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 							fprintf(stderr, "Failed to save session id\n");
 						}
 					}
+                                        
+                                        if(verify_extensions(f,p, HANDSHAKE_MESSAGE_LEN(handshake_hdr))){
+                                            fprintf(stderr, "Failed to verify extensions\n");
+                                        }
+
 					if(extract_server_random(f, p)){
 						fprintf(stderr, "Failed to extract server random nonce\n");
 						remove_flow(f);
@@ -296,11 +302,6 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 #endif
 					if(extract_parameters(f, p)){
 						printf("Error extracting params\n");
-                                                printf("Message:\n");
-                                                for(int i=0; i< RECORD_LEN(record_hdr); i++){
-                                                    printf("%02x ", p[i]);
-                                                }
-                                                printf("\n");
 						remove_flow(f);
 						goto err;
 					}
@@ -805,7 +806,7 @@ int verify_session_id(flow *f, uint8_t *hs){
  *  Output:
  *  	0 if success, 1 if failed
  */
-int check_session(flow *f, uint8_t *hs, uint32_t len){
+int check_extensions(flow *f, uint8_t *hs, uint32_t len){
 
 	uint8_t *p = hs + HANDSHAKE_HEADER_LEN;
 	p += 2; //skip version
@@ -866,6 +867,10 @@ int check_session(flow *f, uint8_t *hs, uint32_t len){
 				f->current_session = new_session;
 			}
 		}
+                if(type == 0x17){//Extended Master Secret
+                    f->extended_master_secret = 1;
+                    printf("Extended master secret extension\n");
+                }
 		p += ext_len;
 		extensions_len -= (4 + ext_len);
 	}
@@ -878,6 +883,54 @@ int check_session(flow *f, uint8_t *hs, uint32_t len){
 	return 0;
 }
 	
+/* Called from ServerHello. Cycles through extensions and verifies their use
+ * in the flow.
+ *
+ *  Input:
+ *  	f: the tagged flow
+ *  	hs: a pointer to the ServerHello message
+ *
+ *  Output:
+ *  	0 if success, 1 if failed
+ */
+int verify_extensions(flow *f, uint8_t *hs, uint32_t len){
+
+    uint8_t extended_master_secret = 0;
+    uint8_t *p = hs + HANDSHAKE_HEADER_LEN;
+
+    p += 2; //skip version
+    p += SSL3_RANDOM_SIZE; //skip random
+
+    p += (uint8_t) p[0] + 1; //skip session id
+
+    p += 2; //skip cipher suite
+
+    p ++; //skip compression method
+
+    //cycle through extensions
+    uint16_t extensions_len = (p[0] << 8) + p[1];
+    p += 2;
+    while(extensions_len > 0){
+        uint16_t type = (p[0] << 8) + p[1];
+        p += 2;
+        uint16_t ext_len = (p[0] << 8) + p[1];
+        p += 2;
+
+        if(type == 0x17){
+            extended_master_secret = 1;
+        }
+        p += ext_len;
+        extensions_len -= (4 + ext_len);
+    }
+
+    //Check to make sure both client and server included extension
+    if(!f->extended_master_secret || !extended_master_secret){
+        f->extended_master_secret = 0;
+    }
+
+    return 0;
+
+}
 
 /* Called from ServerHello during full handshake. Adds the session id to the
  * cache for later resumptions
