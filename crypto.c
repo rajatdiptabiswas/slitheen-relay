@@ -207,6 +207,36 @@ static int nid_list[] = {
     NID_brainpoolP512r1         /* brainpool512r1 (28) */
 };
 
+/** Updates the hash of all TLS handshake messages up to and
+ * including the ClientKeyExchange. This hash is eventually used
+ *  to compute the TLS extended master secret.
+ *
+ *  Inputs:
+ *  	f: the tagged flow
+ *  	hs: A pointer to the start of the handshake message
+ *
+ *  Output:
+ *  	0 on success, 1 on failure
+ */
+int update_handshake_hash(flow *f, uint8_t *hs){
+	//find handshake length
+	const struct handshake_header *hs_hdr;
+	uint8_t *p = hs;
+	hs_hdr = (struct handshake_header*) p;
+	uint32_t hs_len = HANDSHAKE_MESSAGE_LEN(hs_hdr);
+	
+	EVP_DigestUpdate(f->hs_md_ctx, hs, hs_len+4);
+
+#ifdef DEBUG_HS
+	printf("SLITHEEN: adding to handshake hash:\n");
+	for(int i=0; i< hs_len + 4; i++){
+		printf("%02x ", hs[i]);
+	}
+	printf("\n");
+#endif
+
+	return 0;
+}
 /** Extracts the server parameters from the server key
  *  exchange message
  *
@@ -694,12 +724,31 @@ int compute_master_secret(flow *f){
 	}
 
 	/*Generate master secret */
-	
-	PRF(f, pre_master_secret, pre_master_len, (uint8_t *) TLS_MD_MASTER_SECRET_CONST, TLS_MD_MASTER_SECRET_CONST_SIZE, f->client_random, SSL3_RANDOM_SIZE, f->server_random, SSL3_RANDOM_SIZE, NULL, 0, f->master_secret, SSL3_MASTER_SECRET_SIZE);
 
-	if(f->current_session != NULL){
-		memcpy(f->current_session->master_secret, f->master_secret, SSL3_MASTER_SECRET_SIZE);
-	}
+        if(f->extended_master_secret){
+
+            //compute session hash
+            EVP_MD_CTX ctx;
+            uint8_t hash[EVP_MAX_MD_SIZE*2];
+            uint32_t hash_len;
+
+            EVP_MD_CTX_init(&ctx);
+            EVP_MD_CTX_copy_ex(&ctx, f->hs_md_ctx);
+            EVP_DigestFinal_ex(&ctx, hash, &hash_len);
+
+            PRF(f, pre_master_secret, pre_master_len, (uint8_t *) TLS_MD_EXTENDED_MASTER_SECRET_CONST, TLS_MD_EXTENDED_MASTER_SECRET_CONST_SIZE, hash, hash_len, NULL, 0, NULL, 0, f->master_secret, SSL3_MASTER_SECRET_SIZE);
+#ifdef DEBUG_HS
+	fprintf(stdout, "Premaster Secret:\n");
+	BIO_dump_fp(stdout, (char *)pre_master_secret, pre_master_len);
+        fprintf(stdout, "Handshake hash:\n");
+	BIO_dump_fp(stdout, (char *)hash, hash_len);
+	fprintf(stdout, "Master Secret:\n");
+	BIO_dump_fp(stdout, (char *)f->master_secret, SSL3_MASTER_SECRET_SIZE);
+#endif
+
+        } else {
+	
+            PRF(f, pre_master_secret, pre_master_len, (uint8_t *) TLS_MD_MASTER_SECRET_CONST, TLS_MD_MASTER_SECRET_CONST_SIZE, f->client_random, SSL3_RANDOM_SIZE, f->server_random, SSL3_RANDOM_SIZE, NULL, 0, f->master_secret, SSL3_MASTER_SECRET_SIZE);
 
 #ifdef DEBUG_HS
 	fprintf(stdout, "Premaster Secret:\n");
@@ -711,6 +760,12 @@ int compute_master_secret(flow *f){
 	fprintf(stdout, "Master Secret:\n");
 	BIO_dump_fp(stdout, (char *)f->master_secret, SSL3_MASTER_SECRET_SIZE);
 #endif
+        }
+
+	if(f->current_session != NULL){
+		memcpy(f->current_session->master_secret, f->master_secret, SSL3_MASTER_SECRET_SIZE);
+	}
+
 
 	//remove pre_master_secret from memory
 	memset(pre_master_secret, 0, PRE_MASTER_MAX_LEN);

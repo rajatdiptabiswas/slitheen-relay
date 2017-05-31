@@ -176,6 +176,7 @@ typedef struct flow_st {
 	EVP_CIPHER_CTX *srvr_write_ctx;
 	EVP_MD_CTX *read_mac_ctx;
 	EVP_MD_CTX *write_mac_ctx;
+        EVP_MD_CTX *hs_md_ctx;
 
 	uint8_t client_random[SSL3_RANDOM_SIZE];
 	uint8_t server_random[SSL3_RANDOM_SIZE];

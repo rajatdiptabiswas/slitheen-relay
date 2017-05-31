@@ -38,6 +38,7 @@
 /* Curves */
 
 
+int update_handshake_hash(flow *f, uint8_t *hs);
 int extract_parameters(flow *f, uint8_t *hs);
 int encrypt(flow *f, uint8_t *input, uint8_t *output, int32_t len, int32_t incoming, int32_t type, int32_t enc, uint8_t re);
 int fake_encrypt(flow *f, int32_t incoming);
@@ -71,5 +72,8 @@ int check_tag(byte key[16], const byte privkey[PTWIST_BYTES],
 #define SLITHEEN_SUPER_SECRET_SIZE 16 //extracted from slitheen ID tag
 #define SLITHEEN_SUPER_CONST "SLITHEEN_SUPER_ENCRYPT"
 #define SLITHEEN_SUPER_CONST_SIZE 22
+
+#define TLS_MD_EXTENDED_MASTER_SECRET_CONST "extended master secret"
+#define TLS_MD_EXTENDED_MASTER_SECRET_CONST_SIZE 22
 
 #endif

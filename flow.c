@@ -142,6 +142,10 @@ flow *add_flow(struct packet_info *info) {
 	new_flow->ecdh = NULL;
 	new_flow->dh = NULL;
 
+	new_flow->hs_md_ctx = EVP_MD_CTX_create();
+	const EVP_MD *md = EVP_sha256();
+	EVP_DigestInit_ex(new_flow->hs_md_ctx, md, NULL);
+
 	new_flow->cipher = NULL;
 	new_flow->clnt_read_ctx = NULL;
 	new_flow->clnt_write_ctx = NULL;
@@ -255,6 +259,12 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 						fprintf(stderr, "Error checking session, might cause problems\n");
 					}
 
+					if(update_handshake_hash(f, p)){
+						fprintf(stderr, "Error updating finish has with CLNT_HELLO msg\n");
+						remove_flow(f);
+						goto err;
+					}
+
 					break;
 				case TLS_SERV_HELLO:
 #ifdef DEBUG_HS
@@ -279,6 +289,11 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 						remove_flow(f);
 						goto err;
 					}
+					if(update_handshake_hash(f, p)){
+						fprintf(stderr, "Error updating finish has with CLNT_HELLO msg\n");
+						remove_flow(f);
+						goto err;
+					}
 					break;
 				case TLS_NEW_SESS:
 #ifdef DEBUG_HS
@@ -291,10 +306,20 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 				case TLS_CERT:
 #ifdef DEBUG_HS
 					printf("Received cert\n");
+					if(update_handshake_hash(f, p)){
+						fprintf(stderr, "Error updating finish has with CLNT_HELLO msg\n");
+						remove_flow(f);
+						goto err;
+					}
 #endif
 					break;
                                 case TLS_CERT_STATUS:
                                         printf("Received certificate status\n");
+					if(update_handshake_hash(f, p)){
+						fprintf(stderr, "Error updating finish has with CLNT_HELLO msg\n");
+						remove_flow(f);
+						goto err;
+					}
                                         break;
 				case TLS_SRVR_KEYEX:
 #ifdef DEBUG_HS
@@ -306,32 +331,57 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 						goto err;
 					}
 
-					if(compute_master_secret(f)){
-						printf("Error computing master secret\n");
+					if(update_handshake_hash(f, p)){
+						fprintf(stderr, "Error updating finish has with CLNT_HELLO msg\n");
 						remove_flow(f);
 						goto err;
-
 					}
 
 					break;
 
 				case TLS_CERT_REQ:
+					if(update_handshake_hash(f, p)){
+						fprintf(stderr, "Error updating finish has with CLNT_HELLO msg\n");
+						remove_flow(f);
+						goto err;
+					}
 					break;
 				case TLS_SRVR_HELLO_DONE:
 #ifdef DEBUG_HS
 					printf("Received server hello done\n");
 #endif
+					if(update_handshake_hash(f, p)){
+						fprintf(stderr, "Error updating finish has with CLNT_HELLO msg\n");
+						remove_flow(f);
+						goto err;
+					}
 					break;
 				case TLS_CERT_VERIFY:
 #ifdef DEBUG_HS
 					printf("received cert verify\n");
 #endif
+					if(update_handshake_hash(f, p)){
+						fprintf(stderr, "Error updating finish has with CLNT_HELLO msg\n");
+						remove_flow(f);
+						goto err;
+					}
 					break;
 
 				case TLS_CLNT_KEYEX:
 #ifdef DEBUG_HS
 					printf("Received client key exchange\n");
 #endif
+					if(update_handshake_hash(f, p)){
+						fprintf(stderr, "Error updating finish has with CLNT_HELLO msg\n");
+						remove_flow(f);
+						goto err;
+					}
+					if(compute_master_secret(f)){
+						printf("Error computing master secret\n");
+						remove_flow(f);
+						goto err;
+
+					}
 					break;
 				case TLS_FINISHED:
 #ifdef DEBUG_HS
@@ -510,6 +560,10 @@ int remove_flow(flow *f) {
     }
 
 	//Clean up cipher ctxs
+	EVP_MD_CTX_cleanup(f->hs_md_ctx);
+	if(f->hs_md_ctx != NULL){
+		EVP_MD_CTX_destroy(f->hs_md_ctx);
+	}
 	if(f->clnt_read_ctx != NULL){
 		EVP_CIPHER_CTX_cleanup(f->clnt_read_ctx);
 		OPENSSL_free(f->clnt_read_ctx);
@@ -869,7 +923,6 @@ int check_extensions(flow *f, uint8_t *hs, uint32_t len){
 		}
                 if(type == 0x17){//Extended Master Secret
                     f->extended_master_secret = 1;
-                    printf("Extended master secret extension\n");
                 }
 		p += ext_len;
 		extensions_len -= (4 + ext_len);
@@ -926,6 +979,8 @@ int verify_extensions(flow *f, uint8_t *hs, uint32_t len){
     //Check to make sure both client and server included extension
     if(!f->extended_master_secret || !extended_master_secret){
         f->extended_master_secret = 0;
+    } else {
+        printf("Extended master secret extension\n");
     }
 
     return 0;
