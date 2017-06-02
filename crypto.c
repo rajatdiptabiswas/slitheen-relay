@@ -204,7 +204,12 @@ static int nid_list[] = {
     NID_secp521r1,              /* secp521r1 (25) */
     NID_brainpoolP256r1,        /* brainpoolP256r1 (26) */
     NID_brainpoolP384r1,        /* brainpoolP384r1 (27) */
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+    NID_brainpoolP512r1,       /* brainpool512r1 (28) */
+    NID_X25519,                 /* X25519 (29) */
+#else
     NID_brainpoolP512r1         /* brainpool512r1 (28) */
+#endif
 };
 
 /** Updates the hash of all TLS handshake messages up to and
@@ -227,7 +232,7 @@ int update_handshake_hash(flow *f, uint8_t *hs){
 	
 	EVP_DigestUpdate(f->hs_md_ctx, hs, hs_len+4);
 
-#ifdef DEBUG_HS
+#ifdef DEBUG_HS_EXTRA
 	printf("SLITHEEN: adding to handshake hash:\n");
 	for(int i=0; i< hs_len + 4; i++){
 		printf("%02x ", hs[i]);
@@ -266,25 +271,53 @@ int extract_parameters(flow *f, uint8_t *hs){
 		/* Extract prime modulus */
 		n2s(p,i);
 
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+                BIGNUM *prime = NULL;
+		if(!(prime = BN_bin2bn(p,i,NULL))){
+			return 1;
+		}
+#else
 		if(!(dh->p = BN_bin2bn(p,i,NULL))){
 			return 1;
 		}
+#endif
 		p += i;
 
 		/* Extract generator */
 		n2s(p,i);
 
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+                BIGNUM *group = NULL;
+		if(!(group = BN_bin2bn(p,i,NULL))){
+			return 1;
+		}
+
+                if(!DH_set0_pqg(dh, prime, NULL, group)){
+                    return 1;
+                }
+#else
 		if(!(dh->g = BN_bin2bn(p,i,NULL))){
 			return 1;
 		}
+#endif
 		p += i;
 
 		/* Extract server public value */
 		n2s(p,i);
 
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+                BIGNUM *pub = NULL;
+		if(!(pub = BN_bin2bn(p,i,NULL))){
+			return 1;
+		}
+                if(!DH_set0_key(dh, pub, NULL)){
+                    return 1;
+                }
+#else
 		if(!(dh->pub_key = BN_bin2bn(p,i,NULL))){
 			return 1;
 		}
+#endif
 
 		f->dh = dh;
 	} else if (f->keyex_alg == 2){
@@ -298,7 +331,6 @@ int extract_parameters(flow *f, uint8_t *hs){
 		int encoded_pt_len = 0;
 
 		if((ecdh = EC_KEY_new()) == NULL) {
-			SSLerr(SSL_F_SSL3_GET_KEY_EXCHANGE, ERR_R_MALLOC_FAILURE);
 			goto err;
 		}
 
@@ -309,6 +341,7 @@ int extract_parameters(flow *f, uint8_t *hs){
 
 		//int curve_id = (p[1] << 8) + p[2];
 		int curve_id = *(p+2);
+                printf("using curve number %d\n", curve_id);
 		if((curve_id < 0) || ((unsigned int)curve_id >
 						            sizeof(nid_list) / sizeof(nid_list[0]))){
 			goto err;
@@ -422,12 +455,12 @@ int encrypt(flow *f, uint8_t *input, uint8_t *output, int32_t len, int32_t incom
 		}
 	}
 
-	if(f->application && (ds->iv[EVP_GCM_TLS_FIXED_IV_LEN] == 0)){
+	/*if(f->application && (ds->iv[EVP_GCM_TLS_FIXED_IV_LEN] == 0)){
 		//fill in rest of iv
 		for(int i = EVP_GCM_TLS_FIXED_IV_LEN; i< ds->cipher->iv_len; i++){
 			ds->iv[i] = p[i- EVP_GCM_TLS_FIXED_IV_LEN];
 		}
-	}
+	}*/
 
 #ifdef DEBUG
 	printf("\t\tiv: ");
@@ -518,7 +551,7 @@ int fake_encrypt(flow *f, int32_t incoming){
  *                      been updated
  */
 int mark_finished_hash(flow *f, uint8_t *hs){
-	HMAC_CTX ctx;
+	HMAC_CTX *ctx = NULL;
 	uint8_t hmac_output[EVP_MAX_MD_SIZE];
 	unsigned int hmac_output_len;
 
@@ -527,12 +560,22 @@ int mark_finished_hash(flow *f, uint8_t *hs){
 		return 1;
 	}
 
-	HMAC_CTX_init(&ctx);
-	HMAC_Init_ex(&ctx, f->key, 16, EVP_sha256(), NULL);
-	HMAC_Update(&ctx, (const unsigned char *)SLITHEEN_FINISHED_INPUT_CONST, SLITHEEN_FINISHED_INPUT_CONST_SIZE);
-	HMAC_Update(&ctx, hs+4, 12);
-	HMAC_Final(&ctx, hmac_output, &hmac_output_len);
-	HMAC_CTX_cleanup(&ctx);
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+        ctx = HMAC_CTX_new();
+#else
+        ctx = ecalloc(1, sizeof(HMAC_CTX));
+        HMAC_CTX_init(ctx);
+#endif
+	HMAC_Init_ex(ctx, f->key, 16, EVP_sha256(), NULL);
+	HMAC_Update(ctx, (const unsigned char *)SLITHEEN_FINISHED_INPUT_CONST, SLITHEEN_FINISHED_INPUT_CONST_SIZE);
+	HMAC_Update(ctx, hs+4, 12);
+	HMAC_Final(ctx, hmac_output, &hmac_output_len);
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+	HMAC_CTX_free(ctx);
+#else
+	HMAC_CTX_cleanup(ctx);
+        free(ctx);
+#endif
 
 	if (hmac_output_len != 32) {
 		return 1;
@@ -585,7 +628,13 @@ int compute_master_secret(flow *f){
 		dh_srvr = f->dh;
 		dh_clnt = DHparams_dup(dh_srvr);
 
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+                const BIGNUM *p, *q, *g;
+                DH_get0_pqg(dh_clnt, &p, &q, &g);
+		l = DH_get_length(dh_clnt) ? DH_get_length(dh_clnt) : BN_num_bits(p) - 1;
+#else
 		l = dh_clnt->length ? dh_clnt->length : BN_num_bits(dh_clnt->p) - 1;
+#endif
 		bytes = (l+7) / 8;
 
 		buf = (uint8_t *)OPENSSL_malloc(bytes);
@@ -624,15 +673,30 @@ int compute_master_secret(flow *f){
 
 			prk = priv_key;
 
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+			if (!BN_mod_exp_mont(pub_key, g, prk, p, ctx, mont)){
+				goto err;
+			}
+#else
 			if (!dh_clnt->meth->bn_mod_exp(dh_clnt, pub_key, dh_clnt->g, prk, dh_clnt->p, ctx, mont)){
 				goto err;
 			}
+#endif
 		}
 
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+                if(!DH_set0_key(dh_clnt, pub_key, priv_key)){
+                    return 1;
+                }
+                const BIGNUM *srvr_pub, *srvr_priv;
+                DH_get0_key(dh_srvr, &srvr_pub, &srvr_priv);
+		pre_master_len = DH_compute_key(pre_master_secret, srvr_pub, dh_clnt);
+#else
 		dh_clnt->pub_key = pub_key;
 		dh_clnt->priv_key = priv_key;
-
 		pre_master_len = DH_compute_key(pre_master_secret, dh_srvr->pub_key, dh_clnt);
+#endif
+
 		
 	} else if(f->keyex_alg == 2){
 		const EC_GROUP *srvr_group = NULL;
@@ -728,13 +792,18 @@ int compute_master_secret(flow *f){
         if(f->extended_master_secret){
 
             //compute session hash
-            EVP_MD_CTX ctx;
+            EVP_MD_CTX *ctx = NULL;
             uint8_t hash[EVP_MAX_MD_SIZE*2];
             uint32_t hash_len;
 
-            EVP_MD_CTX_init(&ctx);
-            EVP_MD_CTX_copy_ex(&ctx, f->hs_md_ctx);
-            EVP_DigestFinal_ex(&ctx, hash, &hash_len);
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+            ctx = EVP_MD_CTX_new();
+#else
+            ctx = ecalloc(1, sizeof(EVP_MD_CTX));
+            EVP_MD_CTX_init(ctx);
+#endif
+            EVP_MD_CTX_copy_ex(ctx, f->hs_md_ctx);
+            EVP_DigestFinal_ex(ctx, hash, &hash_len);
 
             PRF(f, pre_master_secret, pre_master_len, (uint8_t *) TLS_MD_EXTENDED_MASTER_SECRET_CONST, TLS_MD_EXTENDED_MASTER_SECRET_CONST_SIZE, hash, hash_len, NULL, 0, NULL, 0, f->master_secret, SSL3_MASTER_SECRET_SIZE);
 #ifdef DEBUG_HS
@@ -906,7 +975,9 @@ int PRF(flow *f, uint8_t *secret, int32_t secret_len,
 		uint8_t *seed4, int32_t seed4_len,
 		uint8_t *output, int32_t output_len){
 
-	EVP_MD_CTX ctx, ctx_tmp, ctx_init;
+        int ret = 1;
+
+	EVP_MD_CTX *ctx = NULL, *ctx_tmp = NULL, *ctx_init = NULL;
 	EVP_PKEY *mac_key;
 	const EVP_MD *md;
 	if(f == NULL){
@@ -915,6 +986,21 @@ int PRF(flow *f, uint8_t *secret, int32_t secret_len,
 		md = f->message_digest;
 	}
 
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+	ctx = EVP_MD_CTX_new();
+        ctx_tmp = EVP_MD_CTX_new();
+        ctx_init = EVP_MD_CTX_new();
+#else
+        ctx = ecalloc(1, sizeof(EVP_MD_CTX));
+        EVP_MD_CTX_init(ctx);
+        ctx_tmp = ecalloc(1, sizeof(EVP_MD_CTX));
+        EVP_MD_CTX_init(ctx_tmp);
+        ctx_init = ecalloc(1, sizeof(EVP_MD_CTX));
+        EVP_MD_CTX_init(ctx_init);
+#endif
+        if (ctx == NULL || ctx_tmp == NULL || ctx_init == NULL)
+            goto err;
+
 	uint8_t A[EVP_MAX_MD_SIZE];
 	size_t len, A_len;
 	int chunk = EVP_MD_size(md);
@@ -922,69 +1008,80 @@ int PRF(flow *f, uint8_t *secret, int32_t secret_len,
 
 	uint8_t *out = output;
 
-	EVP_MD_CTX_init(&ctx);
-	EVP_MD_CTX_init(&ctx_tmp);
-	EVP_MD_CTX_init(&ctx_init);
-	EVP_MD_CTX_set_flags(&ctx_init, EVP_MD_CTX_FLAG_NON_FIPS_ALLOW);
+	EVP_MD_CTX_set_flags(ctx_init, EVP_MD_CTX_FLAG_NON_FIPS_ALLOW);
 
 	mac_key = EVP_PKEY_new_mac_key(EVP_PKEY_HMAC, NULL, secret, secret_len);
 
 	/* Calculate first A value */
-	EVP_DigestSignInit(&ctx_init, NULL, md, NULL, mac_key);
-	EVP_MD_CTX_copy_ex(&ctx, &ctx_init);
+	EVP_DigestSignInit(ctx_init, NULL, md, NULL, mac_key);
+	EVP_MD_CTX_copy_ex(ctx, ctx_init);
 	if(seed1 != NULL && seed1_len > 0){
-		EVP_DigestSignUpdate(&ctx, seed1, seed1_len);
+		EVP_DigestSignUpdate(ctx, seed1, seed1_len);
 	}
 	if(seed2 != NULL && seed2_len > 0){
-		EVP_DigestSignUpdate(&ctx, seed2, seed2_len);
+		EVP_DigestSignUpdate(ctx, seed2, seed2_len);
 	}
 	if(seed3 != NULL && seed3_len > 0){
-		EVP_DigestSignUpdate(&ctx, seed3, seed3_len);
+		EVP_DigestSignUpdate(ctx, seed3, seed3_len);
 	}
 	if(seed4 != NULL && seed4_len > 0){
-		EVP_DigestSignUpdate(&ctx, seed4, seed4_len);
+		EVP_DigestSignUpdate(ctx, seed4, seed4_len);
 	}
-	EVP_DigestSignFinal(&ctx, A, &A_len);
+	EVP_DigestSignFinal(ctx, A, &A_len);
 
 	//iterate until desired length is achieved
 	while(remaining > 0){
 		/* Now compute SHA384(secret, A+seed) */
-		EVP_MD_CTX_copy_ex(&ctx, &ctx_init);
-		EVP_DigestSignUpdate(&ctx, A, A_len);
-		EVP_MD_CTX_copy_ex(&ctx_tmp, &ctx);
+		EVP_MD_CTX_copy_ex(ctx, ctx_init);
+		EVP_DigestSignUpdate(ctx, A, A_len);
+		EVP_MD_CTX_copy_ex(ctx_tmp, ctx);
 		if(seed1 != NULL && seed1_len > 0){
-			EVP_DigestSignUpdate(&ctx, seed1, seed1_len);
+			EVP_DigestSignUpdate(ctx, seed1, seed1_len);
 		}
 		if(seed2 != NULL && seed2_len > 0){
-			EVP_DigestSignUpdate(&ctx, seed2, seed2_len);
+			EVP_DigestSignUpdate(ctx, seed2, seed2_len);
 		}
 		if(seed3 != NULL && seed3_len > 0){
-			EVP_DigestSignUpdate(&ctx, seed3, seed3_len);
+			EVP_DigestSignUpdate(ctx, seed3, seed3_len);
 		}
 		if(seed4 != NULL && seed4_len > 0){
-			EVP_DigestSignUpdate(&ctx, seed4, seed4_len);
+			EVP_DigestSignUpdate(ctx, seed4, seed4_len);
 		}
 		
 		if(remaining > chunk){
-			EVP_DigestSignFinal(&ctx, out, &len);
+			EVP_DigestSignFinal(ctx, out, &len);
 			out += len;
 			remaining -= len;
 
 			/* Next A value */
-			EVP_DigestSignFinal(&ctx_tmp, A, &A_len);
+			EVP_DigestSignFinal(ctx_tmp, A, &A_len);
 		} else {
-			EVP_DigestSignFinal(&ctx, A, &A_len);
+			EVP_DigestSignFinal(ctx, A, &A_len);
 			memcpy(out, A, remaining);
 			remaining -= remaining;
 		}
 	}
+        ret = 0;
 
+err:
 	EVP_PKEY_free(mac_key);
-	EVP_MD_CTX_cleanup(&ctx);
-	EVP_MD_CTX_cleanup(&ctx_tmp);
-	EVP_MD_CTX_cleanup(&ctx_init);
+
+        //Check to see if version is greater than OpenSSL 1.1.0e
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+        EVP_MD_CTX_free(ctx);
+        EVP_MD_CTX_free(ctx_tmp);
+        EVP_MD_CTX_free(ctx_init);
+#else
+        EVP_MD_CTX_cleanup(ctx);
+        EVP_MD_CTX_cleanup(ctx_tmp);
+        EVP_MD_CTX_cleanup(ctx_init);
+        free(ctx);
+        free(ctx_tmp);
+        free(ctx_init);
+#endif
+
 	OPENSSL_cleanse(A, sizeof(A));
-	return 0;
+	return ret;
 }
 
 /** After receiving change cipher spec, calculate keys from master secret
@@ -1331,16 +1428,27 @@ int super_encrypt(client *c, uint8_t *data, uint32_t len){
 #endif
 	
 	//MAC at the end
-	EVP_MD_CTX mac_ctx;
-	EVP_MD_CTX_init(&mac_ctx);
+	EVP_MD_CTX *mac_ctx = NULL;
 
-	EVP_MD_CTX_copy_ex(&mac_ctx, c->mac_ctx);
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+	mac_ctx = EVP_MD_CTX_new();
+#else
+        mac_ctx = ecalloc(1, sizeof(EVP_MD_CTX));
+        EVP_MD_CTX_init(mac_ctx);
+#endif
 
-	EVP_DigestSignUpdate(&mac_ctx, p, out_len);
+	EVP_MD_CTX_copy_ex(mac_ctx, c->mac_ctx);
 
-	EVP_DigestSignFinal(&mac_ctx, output, &mac_len);
+	EVP_DigestSignUpdate(mac_ctx, p, out_len);
 
-	EVP_MD_CTX_cleanup(&mac_ctx);
+	EVP_DigestSignFinal(mac_ctx, output, &mac_len);
+
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+	EVP_MD_CTX_free(mac_ctx);
+#else
+	EVP_MD_CTX_cleanup(mac_ctx);
+        free(mac_ctx);
+#endif
 
 	p += out_len;
 	memcpy(p, output, 16);

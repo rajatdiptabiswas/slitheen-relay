@@ -240,10 +240,11 @@ int read_header(flow *f, struct packet_info *info){
 	}
 
 	if(record_hdr->type == 0x15){
-		printf("received alert\n");
-		for(int i=0; i<record_length; i++){
-			printf("%02x ", decrypted_data[i]);
+		printf("received alert %x:%d > %x:%d (%s)\n", info->ip_hdr->src.s_addr, ntohs(info->tcp_hdr->src_port), info->ip_hdr->dst.s_addr, ntohs(info->tcp_hdr->dst_port), (info->ip_hdr->src.s_addr != f->src_ip.s_addr)? "incoming":"outgoing");
+		for(int i=0; i<decrypted_len; i++){
+			printf("%02x ", decrypted_data[EVP_GCM_TLS_EXPLICIT_IV_LEN + i]);
 		}
+                printf("\n");
 		fflush(stdout);
 
 		//TODO: re-encrypt and return

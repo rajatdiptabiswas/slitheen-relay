@@ -365,7 +365,6 @@ void process_packet(struct inject_args *iargs, const struct pcap_pkthdr *header,
         }
 
         observed->ref_ctr--;
-        printf("Finished processing packet. %p ref_ctr %d\n", observed, observed->ref_ctr);
     }
 
 err:

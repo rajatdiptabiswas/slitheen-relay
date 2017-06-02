@@ -35,6 +35,7 @@
 #include <pthread.h>
 #include <errno.h>
 #include <semaphore.h>
+#include <string.h>
 
 #include "flow.h"
 #include "crypto.h"
@@ -196,7 +197,7 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 	switch(record_hdr->type){
 		case HS:
 			p = record;
-#ifdef DEBUG_HS
+#ifdef DEBUG_HS_EXTRA
                         printf("Received handshake packet  (%x:%d -> %x:%d) (incoming: %d)\n", f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port), incoming);
                         for(int i=0; i< record_len; i++){
                             printf("%02x ", p[i]);
@@ -560,10 +561,14 @@ int remove_flow(flow *f) {
     }
 
 	//Clean up cipher ctxs
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+	EVP_MD_CTX_free(f->hs_md_ctx);
+#else
 	EVP_MD_CTX_cleanup(f->hs_md_ctx);
 	if(f->hs_md_ctx != NULL){
 		EVP_MD_CTX_destroy(f->hs_md_ctx);
 	}
+#endif
 	if(f->clnt_read_ctx != NULL){
 		EVP_CIPHER_CTX_cleanup(f->clnt_read_ctx);
 		OPENSSL_free(f->clnt_read_ctx);
