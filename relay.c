@@ -1032,7 +1032,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 					if(len_ptr != NULL){
 						f->replace_response = 1;
 						memcpy(len_ptr + 14, "sli/theen", 9);
-						char *c = len_ptr + 14+8;
+						char *c = len_ptr + 14+9;
 						while(c[0] != '\r'){
 							c[0] = ' ';
 							c++;
