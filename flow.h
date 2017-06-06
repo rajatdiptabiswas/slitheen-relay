@@ -163,6 +163,7 @@ typedef struct flow_st {
 	uint32_t upstream_remaining;
 	DH *dh;
 	EC_KEY *ecdh;
+        EVP_PKEY *srvr_key;
 	sem_t upstream_queue_lock;
 
 	const EVP_CIPHER *cipher;

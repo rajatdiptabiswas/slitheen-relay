@@ -141,6 +141,7 @@ flow *add_flow(struct packet_info *info) {
 	new_flow->replace_response = 0;
 
 	new_flow->ecdh = NULL;
+	new_flow->srvr_key = NULL;
 	new_flow->dh = NULL;
 
 	new_flow->hs_md_ctx = EVP_MD_CTX_create();

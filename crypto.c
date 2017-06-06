@@ -175,6 +175,8 @@
 #define NID_brainpoolP256r1             927
 #define NID_brainpoolP384r1             931
 #define NID_brainpoolP512r1             933
+#define NID_X25519             1034
+
 
 static int nid_list[] = {
     NID_sect163k1,              /* sect163k1 (1) */
@@ -206,11 +208,13 @@ static int nid_list[] = {
     NID_brainpoolP384r1,        /* brainpoolP384r1 (27) */
 #if OPENSSL_VERSION_NUMBER >= 0x1010000eL
     NID_brainpoolP512r1,       /* brainpool512r1 (28) */
-    NID_X25519,                 /* X25519 (29) */
+    NID_X25519                 /* X25519 (29) */
 #else
     NID_brainpoolP512r1         /* brainpool512r1 (28) */
 #endif
 };
+
+
 
 /** Updates the hash of all TLS handshake messages up to and
  * including the ClientKeyExchange. This hash is eventually used
@@ -330,71 +334,82 @@ int extract_parameters(flow *f, uint8_t *hs){
 		int curve_nid = 0;
 		int encoded_pt_len = 0;
 
-		if((ecdh = EC_KEY_new()) == NULL) {
-			goto err;
-		}
-
-
 		if(p[0] != 0x03){//not a named curve
 			goto err;
 		}
 
 		//int curve_id = (p[1] << 8) + p[2];
 		int curve_id = *(p+2);
-                printf("using curve number %d\n", curve_id);
+                printf("Using curve number %d\n", curve_id);
 		if((curve_id < 0) || ((unsigned int)curve_id >
 						            sizeof(nid_list) / sizeof(nid_list[0]))){
 			goto err;
 		}
 			
 		curve_nid = nid_list[curve_id-1];
-	
-		/* Extract curve 
-		if(!tls1_check_curve(s, p, 3)) {
-			goto err;
 
-		}
 
-		if((*(p+2) < 1) || ((unsigned int) (*(p+2)) > sizeof(nid_list) / sizeof(nid_list[0]))){
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+                if(curve_nid == NID_X25519){
+                    //this is a custom curve and must be handled differently
+                    EVP_PKEY *key = EVP_PKEY_new();
 
-			goto err;
-		}
-		curve_nid = nid_list[*(p+2)];
-		*/
+                    if (key == NULL || !EVP_PKEY_set_type(key, curve_nid)){
+                        EVP_PKEY_free(key);
+                        goto err;
+                    }
 
-		ngroup = EC_GROUP_new_by_curve_name(curve_nid);
+                    p += 3;
+                    encoded_pt_len = *p;
+                    p += 1;
 
-		if(ngroup == NULL){
-			goto err;
-		}
-		if(EC_KEY_set_group(ecdh, ngroup) == 0){
-			goto err;
-		}
-		EC_GROUP_free(ngroup);
+                    EVP_PKEY_set1_tls_encodedpoint(key, p, encoded_pt_len);
+                    f->srvr_key = key;
+                    
 
-		group = EC_KEY_get0_group(ecdh);
+                } else {
+#endif	
+                    if((ecdh = EC_KEY_new()) == NULL) {
+                            goto err;
+                    }
 
-		p += 3;
+                    ngroup = EC_GROUP_new_by_curve_name(curve_nid);
 
-		/* Get EC point */
-		if (((srvr_ecpoint = EC_POINT_new(group)) == NULL) || 
-				((bn_ctx = BN_CTX_new()) == NULL)) {
-			goto err;
-		}
+                    if(ngroup == NULL){
+                        printf("couldn't get curve by name (%d)\n", curve_nid);
+                            goto err;
+                    }
 
-		encoded_pt_len = *p;
-		p += 1;
+                    if(EC_KEY_set_group(ecdh, ngroup) == 0){
+                        printf("couldn't set group\n");
+                            goto err;
+                    }
+                    EC_GROUP_free(ngroup);
 
-		if(EC_POINT_oct2point(group, srvr_ecpoint, p, encoded_pt_len, 
-					bn_ctx) == 0){
-			goto err;
-		}
+                    group = EC_KEY_get0_group(ecdh);
 
-		p += encoded_pt_len;
+                    p += 3;
 
-		EC_KEY_set_public_key(ecdh, srvr_ecpoint);
+                    /* Get EC point */
+                    if (((srvr_ecpoint = EC_POINT_new(group)) == NULL) || 
+                                    ((bn_ctx = BN_CTX_new()) == NULL)) {
+                            goto err;
+                    }
 
-		f->ecdh = ecdh;
+                    encoded_pt_len = *p;
+                    p += 1;
+
+                    if(EC_POINT_oct2point(group, srvr_ecpoint, p, encoded_pt_len, 
+                                            bn_ctx) == 0){
+                            goto err;
+                    }
+                    EC_KEY_set_public_key(ecdh, srvr_ecpoint);
+                    f->ecdh = ecdh;
+
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+                }
+#endif
+
 		ecdh = NULL;
 		BN_CTX_free(bn_ctx);
 		bn_ctx = NULL;
@@ -699,10 +714,54 @@ int compute_master_secret(flow *f){
 
 		
 	} else if(f->keyex_alg == 2){
-		const EC_GROUP *srvr_group = NULL;
-		const EC_POINT *srvr_ecpoint = NULL;
-		EC_KEY *tkey;
+            const EC_GROUP *srvr_group = NULL;
+            const EC_POINT *srvr_ecpoint = NULL;
+            EC_KEY *tkey;
 
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+            if(f->srvr_key != NULL){
+
+                EVP_PKEY *ckey, *skey;
+		EVP_PKEY_CTX *pctx;
+                skey = f->srvr_key;
+
+                /* Generate client key from tag */
+                X25519_KEY *xkey = OPENSSL_zalloc(sizeof(*xkey));
+                xkey->privkey = OPENSSL_secure_malloc(X25519_KEYLEN);
+
+		if(xkey->privkey == NULL){
+			goto err;
+		}
+
+		PRF(f, f->key, 16, (uint8_t *) SLITHEEN_KEYGEN_CONST, SLITHEEN_KEYGEN_CONST_SIZE,
+				NULL, 0, NULL, 0, NULL, 0, xkey->privkey, X25519_KEYLEN);
+
+#ifdef DEBUG_HS
+		printf("Generated the X25519 client private key [len: %d]: ", X25519_KEYLEN);
+		for(int i=0; i< X25519_KEYLEN; i++){
+			printf("%02x ", xkey->privkey[i]);
+		}
+		printf("\n");
+#endif
+                //X25519_public_from_private(xkey->pubkey, xkey->privkey);
+                ckey = EVP_PKEY_new();
+                EVP_PKEY_assign(ckey, NID_X25519, xkey);
+
+		pctx = EVP_PKEY_CTX_new(ckey, NULL);
+
+		if (EVP_PKEY_derive_init(pctx) <= 0
+		    || EVP_PKEY_derive_set_peer(pctx, skey) <= 0
+		    || EVP_PKEY_derive(pctx, NULL, (uint64_t *) &pre_master_len) <= 0) {
+		    goto err;
+		}
+
+		if (EVP_PKEY_derive(pctx, pre_master_secret, (uint64_t *) &pre_master_len) <= 0)
+		    goto err;
+
+                EVP_PKEY_CTX_free(pctx);
+
+            } else { /* TODO: need to generate client key in a special way too :S */
+#endif
 		tkey = f->ecdh;
 		if(tkey == NULL){
 			return 1;
@@ -785,6 +844,9 @@ int compute_master_secret(flow *f){
 		if(pre_master_len <= 0) {
 			goto err;
 		}
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+            }
+#endif
 	}
 
 	/*Generate master secret */

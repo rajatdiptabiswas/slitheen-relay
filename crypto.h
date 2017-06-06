@@ -36,7 +36,16 @@
 
 
 /* Curves */
+#define X25519_KEYLEN        32
+#define X25519_BITS          253
+#define X25519_SECURITY_BITS 128
 
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+typedef struct {
+    unsigned char pubkey[X25519_KEYLEN];
+    unsigned char *privkey;
+} X25519_KEY;
+#endif
 
 int update_handshake_hash(flow *f, uint8_t *hs);
 int extract_parameters(flow *f, uint8_t *hs);
