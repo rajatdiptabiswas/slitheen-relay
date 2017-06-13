@@ -81,7 +81,6 @@ flow *add_flow(struct packet_info *info) {
 	new_flow->dst_port = info->tcp_hdr->dst_port;
 
 	new_flow->ref_ctr = 1;
-        printf("Adding new flow (%p ref ctr %d)\n", new_flow, 1);
 	new_flow->removed = 0;
 
 	new_flow->upstream_app_data = emalloc(sizeof(app_data_queue));
@@ -308,15 +307,17 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 				case TLS_CERT:
 #ifdef DEBUG_HS
 					printf("Received cert\n");
+#endif
 					if(update_handshake_hash(f, p)){
 						fprintf(stderr, "Error updating finish has with CLNT_HELLO msg\n");
 						remove_flow(f);
 						goto err;
 					}
-#endif
 					break;
                                 case TLS_CERT_STATUS:
+#ifdef DEBUG_HS
                                         printf("Received certificate status\n");
+#endif
 					if(update_handshake_hash(f, p)){
 						fprintf(stderr, "Error updating finish has with CLNT_HELLO msg\n");
 						remove_flow(f);
@@ -985,9 +986,12 @@ int verify_extensions(flow *f, uint8_t *hs, uint32_t len){
     //Check to make sure both client and server included extension
     if(!f->extended_master_secret || !extended_master_secret){
         f->extended_master_secret = 0;
-    } else {
+    }
+#ifdef DEBUG_HS
+    else {
         printf("Extended master secret extension\n");
     }
+#endif
 
     return 0;
 

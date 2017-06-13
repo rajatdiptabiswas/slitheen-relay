@@ -250,7 +250,7 @@ int read_header(flow *f, struct packet_info *info){
 		//TODO: re-encrypt and return
 	}
 
-#ifdef DEBUG
+#ifdef DEBUG_US
 	printf("Upstream data: (%x:%d > %x:%d )\n",info->ip_hdr->src.s_addr,ntohs(info->tcp_hdr->src_port), info->ip_hdr->dst.s_addr, ntohs(info->tcp_hdr->dst_port));
 	printf("%s\n", decrypted_data+EVP_GCM_TLS_EXPLICIT_IV_LEN);
 #endif
@@ -267,7 +267,7 @@ int read_header(flow *f, struct packet_info *info){
 		return 0;
 	}
 
-#ifdef DEBUG
+#ifdef DEBUG_US
 	printf("UPSTREAM: Found x-slitheen header\n");
 	fflush(stdout);
 	fprintf(stdout,"UPSTREAM Flow: %x:%d > %x:%d (%s)\n", info->ip_hdr->src.s_addr,ntohs(info->tcp_hdr->src_port), info->ip_hdr->dst.s_addr, ntohs(info->tcp_hdr->dst_port) ,(info->ip_hdr->src.s_addr != f->src_ip.s_addr)? "incoming":"outgoing");
@@ -277,7 +277,7 @@ int read_header(flow *f, struct packet_info *info){
 	header_ptr += strlen("X-Slitheen: ");
 	
 	if(*header_ptr == '\r' || *header_ptr == '\0'){
-#ifdef DEBUG
+#ifdef DEBUG_US
 		printf("No messages\n");
 #endif
 		free(decrypted_data);
@@ -298,11 +298,11 @@ int read_header(flow *f, struct packet_info *info){
 	}
 	c++;
 	*c = '\0';
-#ifdef DEBUG
+#ifdef DEBUG_US
 	printf("UPSTREAM: Found %d messages\n", num_messages);
 #endif
 
-	for(int i=0; i< num_messages-1; i++){
+	for(int i=0; i< num_messages; i++){
 		char *message = messages[i];
 
 		//b64 decode the data
@@ -327,7 +327,7 @@ int read_header(flow *f, struct packet_info *info){
 
 		BIO_free_all(bio);
 
-#ifdef DEBUG
+#ifdef DEBUG_US
 		printf("Decoded to get %d bytes:\n", output_len);
 		for(int j=0; j< output_len; j++){
 			printf("%02x ", upstream_data[j]);
@@ -339,7 +339,7 @@ int read_header(flow *f, struct packet_info *info){
 
 		if(i== 0){
 			//this is the Slitheen ID
-#ifdef DEBUG
+#ifdef DEBUG_US
 			printf("Slitheen ID:");
 			for(int j=0; j< output_len; j++){
 				printf("%02x ", p[j]);
@@ -356,7 +356,7 @@ int read_header(flow *f, struct packet_info *info){
 					f->downstream_queue = last->downstream_queue;
 					f->client_ptr = last; 
 					break;
-#ifdef DEBUG
+#ifdef DEBUG_US
 				} else {
 					for(int j=0; j< output_len; j++){
 						printf("%02x ", last->slitheen_id[j]);
@@ -448,7 +448,7 @@ int read_header(flow *f, struct packet_info *info){
 					close(stream_pipe);
 					break;
 				}
-#ifdef DEBUG
+#ifdef DEBUG_US
 				printf("Found stream id %d\n", last->stream_id);
 				printf("Writing %d bytes to pipe\n", stream_len);
 #endif
@@ -512,8 +512,6 @@ int read_header(flow *f, struct packet_info *info){
 	}
 
 	//save a reference to the proxy threads in a global table
-	
-
 	free(decrypted_data);
 	if(record_ptr != NULL)
 		free(record_ptr);
@@ -603,23 +601,27 @@ void *proxy_covert_site(void *data){
 
     handle = socket(AF_INET, SOCK_STREAM, 0);
     if(handle < 0){
-		goto err;
+        goto err;
     }
 
-	struct sockaddr_in my_addr;
-	socklen_t my_addr_len = sizeof(my_addr);
+    struct sockaddr_in my_addr;
+    socklen_t my_addr_len = sizeof(my_addr);
 
     int32_t error = connect (handle, (struct sockaddr *) &dest, sizeof (struct sockaddr));
 
+#ifdef DEBUG_PROXY
+    printf("Connected to covert site for stream %d\n", stream_id);
+#endif
+
     if(error <0){
-		goto err;
+        goto err;
     }
 
 	getsockname(handle, (struct sockaddr *) &my_addr, &my_addr_len);
 
 	//see if there were extra upstream bytes
 	if(data_len > 0){
-#ifdef DEBUG
+#ifdef DEBUG_PROXY
 		printf("Data len is %d\n", data_len);
 		printf("Upstream bytes: ");
 		for(int i=0; i< data_len; i++){
@@ -662,7 +664,7 @@ void *proxy_covert_site(void *data){
 			int32_t bytes_read = read(thread_data->pipefd, buffer, buffer_len);
 
 			if(bytes_read > 0){
-#ifdef DEBUG
+#ifdef DEBUG_PROXY
 				printf("PROXY (id %d): read %d bytes from pipe\n", stream_id, bytes_read);
 				for(int i=0; i< bytes_read; i++){
 					printf("%02x ", buffer[i]);
@@ -673,8 +675,10 @@ void *proxy_covert_site(void *data){
 				bytes_sent = send(handle, buffer,
 						bytes_read, 0);
 				if( bytes_sent <= 0){
+                                    printf("Error sending bytes to covert site (stream %d)\n", stream_id);
 					break;
 				} else if (bytes_sent < bytes_read){
+                                    printf("Sent less bytes than read to covert site (stream %d)\n", stream_id);
 					break;
 				}
 			} else {
@@ -724,7 +728,7 @@ void *proxy_covert_site(void *data){
 			if(bytes_read > 0){
 				uint8_t *new_data = emalloc(bytes_read);
 				memcpy(new_data, buffer, bytes_read);
-#ifdef DEBUG
+#ifdef DEBUG_PROXY
 				printf("PROXY (id %d): read %d bytes from censored site\n",stream_id, bytes_read);
 				for(int i=0; i< bytes_read; i++){
 					printf("%02x ", buffer[i]);
@@ -768,7 +772,6 @@ void *proxy_covert_site(void *data){
 	if(streams->first != NULL){
 		if(last->stream_id == stream_id){
 			streams->first = last->next;
-			printf("Freeing (2) %p\n", last);
 			free(last);
 		} else {
 			while(last->next != NULL){
@@ -776,7 +779,6 @@ void *proxy_covert_site(void *data){
 				last = last->next;
 				if(last->stream_id == stream_id){
 					prev->next = last->next;
-					printf("Freeing (2) %p\n", last);
 					free(last);
 					break;
 				}
@@ -930,6 +932,9 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 
 
 			if(f->httpstate == PARSE_HEADER || f->httpstate == BEGIN_CHUNK || f->httpstate == END_CHUNK){
+#ifdef RESOURCE_DEBUG
+                            printf("record exceeds packet length, FORFEIT\n");
+#endif
 				f->httpstate = FORFEIT_REST;
 			} else if( f->httpstate == MID_CONTENT || f->httpstate == MID_CHUNK){
 				f->remaining_response_len -= record_len - 24; //len of IV and padding
@@ -972,6 +977,9 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 				}
 				if(f->remaining_response_len < 0){
 					f->remaining_response_len = 0;
+#ifdef RESOURCE_DEBUG
+                            printf("Resource is mid-content and super long record exceeds remaining resource len, FORFEIT\n");
+#endif
 					f->httpstate = FORFEIT_REST;
 				}
 			}
@@ -1005,12 +1013,12 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 		changed = 1;
 
 #ifdef DEBUG_DOWN
-		printf("Decryption succeeded\n");
-		printf("Bytes:\n");
-		for(int i=0; i< n; i++){
-			printf("%02x ", record_ptr[EVP_GCM_TLS_EXPLICIT_IV_LEN+i]);
-		}
-		printf("\n");
+		printf("Decrypted new record\n");
+		//printf("Bytes:\n");
+		//for(int i=0; i< n; i++){
+		//	printf("%02x ", record_ptr[EVP_GCM_TLS_EXPLICIT_IV_LEN+i]);
+		//}
+		//printf("\n");
 		printf("Text:\n");
 		printf("%s\n", record_ptr+EVP_GCM_TLS_EXPLICIT_IV_LEN);
 		fflush(stdout);
@@ -1022,6 +1030,10 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 		remaining_record_len = n;
 
 		while(remaining_record_len > 0){
+
+#ifdef RESOURCE_DEBUG
+                    printf("Current state: %d\n", f->httpstate);
+#endif
 
 			switch(f->httpstate){
 
@@ -1037,6 +1049,9 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 							c[0] = ' ';
 							c++;
 						}
+#ifdef RESOURCE_DEBUG
+                                                printf("Found and replaced leaf header\n");
+#endif
 					} else {
 						f->replace_response = 0;
 					}
@@ -1146,6 +1161,9 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 						p = (uint8_t *) needle + 2;
 					} else {
 						remaining_record_len = 0;
+#ifdef RESOURCE_DEBUG
+                            printf("Error parsing in BEGIN_CHUNK, FORFEIT\n");
+#endif
 						f->httpstate = FORFEIT_REST;
 					}
 					}
@@ -1195,7 +1213,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 						remaining_record_len -= 2;
 					} else {
 						remaining_record_len = 0;
-						//printf("Couldn't find end of chunk, sending to FORFEIT_REST\n");
+						printf("Couldn't find end of chunk, sending to FORFEIT_REST\n");
 						f->httpstate = FORFEIT_REST;
 					}
 					break;
@@ -1208,7 +1226,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 						remaining_record_len -= 2;
 					} else {
 						remaining_record_len = 0;
-						//printf("Couldn't find end of body, sending to FORFEIT_REST\n");
+						printf("Couldn't find end of body, sending to FORFEIT_REST\n");
 						f->httpstate = FORFEIT_REST;
 					}
 					break;
@@ -1225,7 +1243,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 			}
 		}
 #ifdef DEBUG_DOWN
-		if(changed){
+		if(changed && f->replace_response){
 			printf("Resource is now\n");
 			printf("Bytes:\n");
 			for(int i=0; i< n; i++){
@@ -1283,7 +1301,10 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 	data_queue *downstream_queue = f->downstream_queue;
 	client *client_ptr = f->client_ptr;
 
-	if(client_ptr == NULL) return 1;
+	if(client_ptr == NULL){
+            printf("ERROR: no client\n");
+            return 1;
+        }
 
 
 	//Fill as much as we can from the censored_queue

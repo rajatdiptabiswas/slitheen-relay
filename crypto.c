@@ -340,7 +340,9 @@ int extract_parameters(flow *f, uint8_t *hs){
 
 		//int curve_id = (p[1] << 8) + p[2];
 		int curve_id = *(p+2);
+#ifdef DEBUG_HS
                 printf("Using curve number %d\n", curve_id);
+#endif
 		if((curve_id < 0) || ((unsigned int)curve_id >
 						            sizeof(nid_list) / sizeof(nid_list[0]))){
 			goto err;
@@ -1006,9 +1008,11 @@ int extract_server_random(flow *f, uint8_t *hs){
 		f->message_digest = EVP_sha384();
 
 	} else {
+#ifdef DEBUG_HS
 		printf("%x %x = %x\n", p[0], p[1], ((p[0] <<8) + p[1]));
 		printf("Error: unsupported cipher\n");
 		fflush(stdout);
+#endif
 		return 1;
 	}
 
@@ -1620,7 +1624,6 @@ void check_handshake(struct packet_info *info){
 #endif
 
 				flow_ptr->ref_ctr--;
-                                printf("Flow added. %p ref_ctr %d\n", flow_ptr, flow_ptr->ref_ctr);
 
 			} else { /* else update saved flow with new key and random nonce */
 				for(int i=0; i<16; i++){
