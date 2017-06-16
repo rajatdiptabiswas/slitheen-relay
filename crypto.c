@@ -761,6 +761,7 @@ int compute_master_secret(flow *f){
 		    goto err;
 
                 EVP_PKEY_CTX_free(pctx);
+                EVP_PKEY_free(ckey);
 
             } else { /* TODO: need to generate client key in a special way too :S */
 #endif
@@ -856,18 +857,25 @@ int compute_master_secret(flow *f){
         if(f->extended_master_secret){
 
             //compute session hash
-            EVP_MD_CTX *ctx = NULL;
+            EVP_MD_CTX *md_ctx = NULL;
             uint8_t hash[EVP_MAX_MD_SIZE*2];
             uint32_t hash_len;
 
 #if OPENSSL_VERSION_NUMBER >= 0x1010000eL
-            ctx = EVP_MD_CTX_new();
+            md_ctx = EVP_MD_CTX_new();
 #else
-            ctx = ecalloc(1, sizeof(EVP_MD_CTX));
-            EVP_MD_CTX_init(ctx);
+            md_ctx = ecalloc(1, sizeof(EVP_MD_CTX));
+            EVP_MD_CTX_init(md_ctx);
 #endif
-            EVP_MD_CTX_copy_ex(ctx, f->hs_md_ctx);
-            EVP_DigestFinal_ex(ctx, hash, &hash_len);
+            EVP_MD_CTX_copy_ex(md_ctx, f->hs_md_ctx);
+            EVP_DigestFinal_ex(md_ctx, hash, &hash_len);
+
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+            EVP_MD_CTX_free(md_ctx);
+#else
+            EVP_MD_CTX_cleanup(md_ctx);
+            free(md_ctx);
+#endif
 
             PRF(f, pre_master_secret, pre_master_len, (uint8_t *) TLS_MD_EXTENDED_MASTER_SECRET_CONST, TLS_MD_EXTENDED_MASTER_SECRET_CONST_SIZE, hash, hash_len, NULL, 0, NULL, 0, f->master_secret, SSL3_MASTER_SECRET_SIZE);
 #ifdef DEBUG_HS
@@ -913,7 +921,7 @@ err:
 	}
 
 	if(ctx != NULL){
-		BN_CTX_free(ctx);
+            BN_CTX_free(ctx);
 	}
 
 	OPENSSL_free(buf);
