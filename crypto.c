@@ -479,7 +479,7 @@ int encrypt(flow *f, uint8_t *input, uint8_t *output, int32_t len, int32_t incom
 		}
 	}*/
 
-#ifdef DEBUG
+#ifdef DEBUG_HS_EXTRA
 	printf("\t\tiv: ");
 	for(int i=0; i<ds->cipher->iv_len; i++){
 		printf("%02X ", ds->iv[i]);
@@ -802,7 +802,7 @@ int compute_master_secret(flow *f){
 			goto err;
 		}
 
-		l = BN_num_bits(order)-1;
+		l = BN_num_bits(order);
 		bytes = (l+7)/8;
 
 		buf = (unsigned char *)OPENSSL_malloc(bytes);
@@ -1255,7 +1255,7 @@ int init_ciphers(flow *f){
 	EVP_PKEY_free(write_mac_key);*/
 
 
-#ifdef DEBUG
+#ifdef DEBUG_HS_EXTRA
     {
         int i;
         fprintf(stderr, "EVP_CipherInit_ex(r_ctx,c,key=,iv=,which)\n");
