@@ -933,7 +933,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 
 			if(f->httpstate == PARSE_HEADER || f->httpstate == BEGIN_CHUNK || f->httpstate == END_CHUNK){
 #ifdef RESOURCE_DEBUG
-                            printf("record exceeds packet length, FORFEIT\n");
+                            printf("record exceeds packet length, state %x -> FORFEIT (%p)\n", f->httpstate, f);
 #endif
 				f->httpstate = FORFEIT_REST;
 			} else if( f->httpstate == MID_CONTENT || f->httpstate == MID_CHUNK){
@@ -972,13 +972,14 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 					if(f->httpstate == MID_CHUNK)
 						f->httpstate = END_CHUNK;
 					else {
+                                            printf("Change state %x --> PARSE_HEADER (%p)\n", f->httpstate, f);
 						f->httpstate = PARSE_HEADER;
 					}
 				}
 				if(f->remaining_response_len < 0){
 					f->remaining_response_len = 0;
 #ifdef RESOURCE_DEBUG
-                            printf("Resource is mid-content and super long record exceeds remaining resource len, FORFEIT\n");
+                            printf("Resource is mid-content and super long record exceeds remaining resource len, FORFEIT (%p)\n", f);
 #endif
 					f->httpstate = FORFEIT_REST;
 				}
@@ -997,6 +998,14 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 			break;
 		}
 
+#ifdef DEBUG_DOWN
+		printf("Received record\n");
+		printf("Bytes:\n");
+		for(int i=0; i< record_len; i++){
+			printf("%02x ", record_ptr[i]);
+		}
+		printf("\n");
+#endif
 
 		//now decrypt the record
 		int32_t n = encrypt(f, record_ptr, record_ptr, record_len, 1,
@@ -1032,7 +1041,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 		while(remaining_record_len > 0){
 
 #ifdef RESOURCE_DEBUG
-                    printf("Current state: %d\n", f->httpstate);
+                    printf("Current state (flow %p): %x\n", f, f->httpstate);
 #endif
 
 			switch(f->httpstate){
@@ -1055,6 +1064,31 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 					} else {
 						f->replace_response = 0;
 					}
+
+                                        //TODO: more cases for more status codes
+                                        //TODO: better way of finding terminating string
+                                        len_ptr = strstr((const char *) p, "304 Not Modified");
+                                        if(len_ptr != NULL){
+                                            //no message body, look for terminating string
+                                            len_ptr = strstr((const char *) p, "\r\n\r\n");
+                                            if(len_ptr != NULL){
+                                                    f->httpstate = PARSE_HEADER;
+                                                    remaining_record_len -= (((uint8_t *)len_ptr - p) + 4);
+                                                    p = (uint8_t *) len_ptr + 4;
+#ifdef RESOURCE_DEBUG
+                                                    printf("Found a 304 not modified, waiting for next header\n");
+                                                    printf("Remaining record len: %d\n", remaining_record_len);
+#endif
+                                            } else {
+#ifdef RESOURCE_DEBUG
+                                                    printf("Missing end of header. Sending to FORFEIT_REST (%p)\n", f);
+#endif
+                                                    f->httpstate = FORFEIT_REST;
+                                            }
+
+
+                                            break;
+                                        }
 
 					//check for 200 OK message
 					len_ptr = strstr((const char *) p, "200 OK");
@@ -1093,13 +1127,13 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 							} else {
 								remaining_record_len = 0;
 #ifdef RESOURCE_DEBUG
-								printf("Missing end of header. Sending to FORFEIT_REST\n");
+								printf("Missing end of header. Sending to FORFEIT_REST (%p)\n", f);
 #endif
 								f->httpstate = FORFEIT_REST;
 							}
 						} else {
 #ifdef RESOURCE_DEBUG
-							printf("No content length of transfer encoding field, sending to FORFEIT_REST\n");
+							printf("No content length of transfer encoding field, sending to FORFEIT_REST (%p)\n", f);
 #endif
 							f->httpstate = FORFEIT_REST;
 							remaining_record_len = 0;
@@ -1141,6 +1175,8 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 						}
 						remaining_record_len -= f->remaining_response_len;
 						p += f->remaining_response_len;
+
+                                                printf("Change state %x --> PARSE_HEADER (%p)\n", f->httpstate, f);
 						f->httpstate = PARSE_HEADER;
 						f->remaining_response_len = 0;
 					}
@@ -1162,7 +1198,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 					} else {
 						remaining_record_len = 0;
 #ifdef RESOURCE_DEBUG
-                            printf("Error parsing in BEGIN_CHUNK, FORFEIT\n");
+                            printf("Error parsing in BEGIN_CHUNK, FORFEIT (%p)\n", f);
 #endif
 						f->httpstate = FORFEIT_REST;
 					}
@@ -1213,7 +1249,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 						remaining_record_len -= 2;
 					} else {
 						remaining_record_len = 0;
-						printf("Couldn't find end of chunk, sending to FORFEIT_REST\n");
+						printf("Couldn't find end of chunk, sending to FORFEIT_REST (%p)\n", f);
 						f->httpstate = FORFEIT_REST;
 					}
 					break;
@@ -1221,12 +1257,13 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 				case END_BODY:
 					needle = strstr((const char *) p, "\r\n");
 					if(needle != NULL){
+                                                printf("Change state %x --> PARSE_HEADER (%p)\n", f->httpstate, f);
 						f->httpstate = PARSE_HEADER;
 						p += 2;
 						remaining_record_len -= 2;
 					} else {
 						remaining_record_len = 0;
-						printf("Couldn't find end of body, sending to FORFEIT_REST\n");
+						printf("Couldn't find end of body, sending to FORFEIT_REST (%p)\n", f);
 						f->httpstate = FORFEIT_REST;
 					}
 					break;
@@ -1266,6 +1303,18 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 			}
 			return 0;
 		}
+
+#ifdef DEBUG_DOWN
+		fprintf(stdout,"Flow: %x > %x (%s)\n", info->ip_hdr->src.s_addr, info->ip_hdr->dst.s_addr, (info->ip_hdr->src.s_addr != f->src_ip.s_addr)? "incoming":"outgoing");
+		fprintf(stdout,"ID number: %u\n", htonl(info->ip_hdr->id));
+		fprintf(stdout,"Sequence number: %u\n", htonl(info->tcp_hdr->sequence_num));
+		fprintf(stdout,"Acknowledgement number: %u\n", htonl(info->tcp_hdr->ack_num));
+                printf("New ciphertext bytes:\n");
+                for(int i=0; i< n; i++){
+                        printf("%02x ", record_ptr[i]);
+                }
+                printf("\n");
+#endif
 
 		p = record_ptr + record_len;
 		remaining_packet_len -= record_len;

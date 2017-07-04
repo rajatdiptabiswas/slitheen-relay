@@ -390,6 +390,11 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 #ifdef DEBUG_HS
 					printf("Received finished (%d) (%x:%d -> %x:%d)\n", incoming, f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port));
 #endif
+					if((f->in_encrypted == 2) && (f->out_encrypted == 2)){
+						f->application = 1;
+                                                printf("Handshake complete!\n");
+					}
+
 					if(!incoming) {
 					    // We only care about incoming
 					    // Finished messages
@@ -415,11 +420,6 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 					if(n<=0){
 						printf("Error re-encrypting finished  (%x:%d -> %x:%d)\n", f->src_ip.s_addr, ntohs(f->src_port),
 								f->dst_ip.s_addr, ntohs(f->dst_port));
-					}
-
-					if((f->in_encrypted == 2) && (f->out_encrypted == 2)){
-						f->application = 1;
-                                                printf("Handshake complete!\n");
 					}
 
 					break;
@@ -456,15 +456,23 @@ int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 			p += RECORD_HEADER_LEN;
 			if(((incoming) && (f->in_encrypted > 0)) || ((!incoming) && (f->out_encrypted > 0))){
 				//decrypt alert
-				encrypt(f, p, p, record_len - RECORD_HEADER_LEN, incoming, 0x16, 0, 0);
+				int32_t n = encrypt(f, p, p, record_len - RECORD_HEADER_LEN, incoming, 0x15, 0, 0);
+                                if(n <= 0){
+                                    printf("Error decrypting Alert\n");
+                                }
+				printf("Decrypted alert:\n");
+				for(int i=0; i< n; i++){
+					printf("%02x ", p[i]);
+				}
+				printf("\n");
 				p += EVP_GCM_TLS_EXPLICIT_IV_LEN;
 			}
-			printf("Alert (%x:%d -> %x:%d) %02x %02x \n", f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port), p[0], p[1]);
+			printf("Alert (%x:%d -> %x:%d) (%s) %02x %02x \n", f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port), (incoming) ? "incoming" : "outgoing", p[0], p[1]);
 			fflush(stdout);
 			
 			//re-encrypt alert
 			if(((incoming) && (f->in_encrypted > 0)) || ((!incoming) && (f->out_encrypted > 0))){
-				int32_t n =  encrypt(f, record+RECORD_HEADER_LEN, record+RECORD_HEADER_LEN, record_len - (RECORD_HEADER_LEN+16), incoming, 0x16, 1, 1);
+				int32_t n =  encrypt(f, record+RECORD_HEADER_LEN, record+RECORD_HEADER_LEN, record_len - (RECORD_HEADER_LEN+16), incoming, 0x15, 1, 1);
 				if(n <= 0){
 					printf("Error re-encrypting alert\n");
 				}
@@ -789,7 +797,7 @@ int verify_session_id(flow *f, uint8_t *hs){
 		session *last = sessions->first_session;
 		int found = 0;
 		for(int i=0; ((i<sessions->length) && (!found)); i++){
-#ifdef DEBUG_HS
+#ifdef DEBUG_HS_EXTRA
 			printf("Checking saved session id: ");
 			for (int j=0; j< last->session_id_len; j++){
 				printf("%02x ", last->session_id[j]);
@@ -1279,7 +1287,7 @@ int add_packet(flow *f, struct packet_info *info){
                     return 1;//error occurred and flow was removed
                 }
 
-                if(f->in_encrypted ==2){
+                if(f->in_encrypted ==2 && incoming){
                     //if server finished message was received, copy changes back to packet
 
 #ifdef DEBUG

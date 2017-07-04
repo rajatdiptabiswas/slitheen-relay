@@ -174,7 +174,7 @@ void inject_packet(struct inject_args *iargs, const struct pcap_pkthdr *header, 
         printf("Length: %d\n", header->len);
     }
 
-#ifdef DEBUG
+#ifdef DEBUG_EXTRA
     fprintf(stderr, "injected the following packet:\n");
     for(int i=0; i< header->len; i++){
         fprintf(stderr, "%02x ", packet[i]);
@@ -367,6 +367,8 @@ void process_packet(struct inject_args *iargs, const struct pcap_pkthdr *header,
         observed->ref_ctr--;
     }
 
+    //TODO: figure out how to not need this
+    tcp_checksum(info);//update checksum
 err:
     free(info);//Note: don't free this while a thread is using it
 
