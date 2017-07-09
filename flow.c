@@ -964,16 +964,26 @@ int check_extensions(flow *f, uint8_t *hs, uint32_t len){
 int verify_extensions(flow *f, uint8_t *hs, uint32_t len){
 
     uint8_t extended_master_secret = 0;
+    uint32_t remaining_len = len;
+
     uint8_t *p = hs + HANDSHAKE_HEADER_LEN;
 
     p += 2; //skip version
     p += SSL3_RANDOM_SIZE; //skip random
+    remaining_len -= (2 + SSL3_RANDOM_SIZE);
 
+    remaining_len -= (uint8_t) p[0] + 1;
     p += (uint8_t) p[0] + 1; //skip session id
 
     p += 2; //skip cipher suite
+    remaining_len -= 2;
 
     p ++; //skip compression method
+    remaining_len --;
+
+    if(remaining_len < 2){
+        return 0;
+    }
 
     //cycle through extensions
     uint16_t extensions_len = (p[0] << 8) + p[1];
