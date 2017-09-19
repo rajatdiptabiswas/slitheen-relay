@@ -463,6 +463,7 @@ int read_header(flow *f, struct packet_info *info){
 				pthread_t proxy_thread;
 				int32_t pipefd[2];
 				if(pipe(pipefd) < 0){
+                                    printf("Error creating pipe\n");
 					free(decrypted_data);
 					if(record_ptr != NULL)
 						free(record_ptr);
@@ -484,6 +485,7 @@ int read_header(flow *f, struct packet_info *info){
 				pthread_create(&proxy_thread, NULL, proxy_covert_site, (void *) thread_data);
 
 				pthread_detach(proxy_thread);
+                                printf("Spawned thread for proxy\n");
 				//add stream to table
 				stream *new_stream = emalloc(sizeof(stream));
 				new_stream->stream_id = stream_id;
@@ -545,6 +547,11 @@ void *proxy_covert_site(void *data){
 
 	int32_t bytes_sent;
 
+#ifdef DEBUG_PROXY
+    printf("PROXY: created new thread for stream %d\n", stream_id);
+#endif
+
+
 	stream_table *streams = thread_data->streams;
 	data_queue *downstream_queue = thread_data->downstream_queue;
 	client *clnt = thread_data->client;
@@ -557,6 +564,7 @@ void *proxy_covert_site(void *data){
 
 	//see if it's a connect request
 	if(clnt_req->cmd != 0x01){
+            printf("PROXY: error not a connect request\n");
 		goto err;
 	}
 
@@ -590,6 +598,7 @@ void *proxy_covert_site(void *data){
 		break;
 	case 0x04:
 		//IPv6
+                printf("PROXY: error IPv6\n");
 		goto err;//TODO: add IPv6 functionality
 		break;
 	}
@@ -601,6 +610,7 @@ void *proxy_covert_site(void *data){
 
     handle = socket(AF_INET, SOCK_STREAM, 0);
     if(handle < 0){
+        printf("PROXY: error creating socket\n");
         goto err;
     }
 
@@ -610,8 +620,9 @@ void *proxy_covert_site(void *data){
     int32_t error = connect (handle, (struct sockaddr *) &dest, sizeof (struct sockaddr));
 
 #ifdef DEBUG_PROXY
-    printf("Connected to covert site for stream %d\n", stream_id);
+    printf("PROXY: Connected to covert site for stream %d\n", stream_id);
 #endif
+    fflush(stdout);
 
     if(error <0){
         goto err;
@@ -843,41 +854,46 @@ err:
  */
 int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 
-	uint8_t changed = 0;
-
 	uint8_t *p = info->app_data;
 	uint32_t remaining_packet_len = info->app_data_len;
 
+        uint32_t partial_offset;
+        uint32_t remaining_record_len, record_len;
 
-	if(f->remaining_record_len > 0){
-		//ignore bytes until the end of the record
-		if(f->remaining_record_len > remaining_packet_len){ //ignore entire packet
-			if(f->outbox_len > 0){
-				changed = 1;
-				memcpy(p, f->outbox + f->outbox_offset, remaining_packet_len);
-				f->outbox_len -= remaining_packet_len;
-				f->outbox_offset += remaining_packet_len;
-				
-			}
-			f->remaining_record_len -= remaining_packet_len;
-			remaining_packet_len -= remaining_packet_len;
-		} else {
-			if(f->outbox_len > 0){
-				changed = 1;
-				memcpy(p, f->outbox + f->outbox_offset, f->remaining_record_len);
-				f->outbox_len = 0;
-				f->outbox_offset=0;
-				free(f->outbox);
-			}
+        uint8_t partial = 0, false_tag = 0, changed = 0;
 
-			p += f->remaining_record_len;
-			remaining_packet_len -= f->remaining_record_len;
-			f->remaining_record_len = 0;
-		}
+        uint8_t *record, *record_ptr;
 
-	}
+        int32_t n;
+
+        struct record_header *record_hdr;
+
 
 	while(remaining_packet_len > 0){ //while bytes remain in the packet
+            if(f->partial_record != NULL){
+                partial = 1;
+                remaining_record_len = f->partial_record_total_len - f->partial_record_len;
+                if(remaining_record_len > remaining_packet_len){ //ignore entire packet
+
+                    partial_offset = f->partial_record_len;
+                    f->partial_record_len += remaining_packet_len;
+                    memcpy(f->partial_record+ partial_offset, p, remaining_packet_len);
+                    remaining_record_len = remaining_packet_len;
+                } else { // finishing out this record
+
+                    partial_offset = f->partial_record_len;
+                    f->partial_record_len += remaining_record_len;
+                    memcpy(f->partial_record+ partial_offset, p, remaining_record_len);
+                }
+
+                record_len = remaining_record_len;
+
+                //copy record to temporary ptr
+                record_ptr = malloc(f->partial_record_len);
+                memcpy(record_ptr, f->partial_record, f->partial_record_len);
+
+            } else { //new record
+
 		if(remaining_packet_len < RECORD_HEADER_LEN){
 #ifdef DEBUG
 			printf("partial record header: \n");
@@ -894,7 +910,6 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 			break;
 		}
 
-		struct record_header *record_hdr;
 
 		if(f->partial_record_header_len > 0){
 			memcpy(f->partial_record_header+ f->partial_record_header_len, 
@@ -904,7 +919,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 		
 			record_hdr = (struct record_header*) p;
 		}
-		uint32_t record_len = RECORD_LEN(record_hdr);
+		record_len = RECORD_LEN(record_hdr);
 
 #ifdef DEBUG
 		fprintf(stdout,"Flow: %x > %x (%s)\n", info->ip_hdr->src.s_addr, info->ip_hdr->dst.s_addr, (info->ip_hdr->src.s_addr != f->src_ip.s_addr)? "incoming":"outgoing");
@@ -922,126 +937,131 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 		p += (RECORD_HEADER_LEN - f->partial_record_header_len);
 		remaining_packet_len -= (RECORD_HEADER_LEN - f->partial_record_header_len);
 
-		uint8_t *record_ptr = p; //points to the beginning of record data
-		uint32_t remaining_record_len = record_len;
 
 
-		if(record_len > remaining_packet_len){
-			int8_t increment_ctr = 1;
-			f->remaining_record_len = record_len - remaining_packet_len;
+                if(record_len > remaining_packet_len){
+                    partial = 1;
 
+                    f->partial_record = emalloc(record_len);
+                    f->partial_record_dec = emalloc(record_len);
+                    f->partial_record_total_len = record_len;
+                    f->partial_record_len = remaining_packet_len;
+                    partial_offset = 0;
+                    memcpy(f->partial_record, p, remaining_packet_len);
+                }
 
-			if(f->httpstate == PARSE_HEADER || f->httpstate == BEGIN_CHUNK || f->httpstate == END_CHUNK){
-#ifdef RESOURCE_DEBUG
-                            printf("record exceeds packet length, state %x -> FORFEIT (%p)\n", f->httpstate, f);
-#endif
-				f->httpstate = FORFEIT_REST;
-			} else if( f->httpstate == MID_CONTENT || f->httpstate == MID_CHUNK){
-				f->remaining_response_len -= record_len - 24; //len of IV and padding
-				if(f->remaining_response_len >= 0 && f->replace_response){
-
-					//make a huge record, encrypt it, and then place it in the outbox
-					f->outbox = emalloc(record_len+1);
-					f->outbox_len = record_len;
-					f->outbox_offset = 0;
-					if(!fill_with_downstream(f, f->outbox + EVP_GCM_TLS_EXPLICIT_IV_LEN , record_len - (EVP_GCM_TLS_EXPLICIT_IV_LEN+ 16))){
-
-                                            //encrypt (not a re-encryption)
-                                            int32_t n = encrypt(f, f->outbox, f->outbox,
-                                                                            record_len - 16, 1,
-                                                                            record_hdr->type, 1, 0);
-                                            if(n < 0){
-                                                    fprintf(stdout,"outbox encryption failed\n");
-                                            } else {
-                                                    
-                                                    memcpy(p, f->outbox, remaining_packet_len);
-                                                    changed = 1;
-                                                    increment_ctr = 0;
-                                                    f->outbox_len -= remaining_packet_len;
-                                                    f->outbox_offset += remaining_packet_len;
-                                            }
-                                        } else { //failed to fill with downstream data, client unknown
-                                            free(f->outbox);
-                                            f->outbox = NULL;
-                                            f->outbox_len = 0;
-                                            f->replace_response = 0;
-                                        }
-				}
-
-				if(f->remaining_response_len == 0){
-					if(f->httpstate == MID_CHUNK)
-						f->httpstate = END_CHUNK;
-					else {
-                                            printf("Change state %x --> PARSE_HEADER (%p)\n", f->httpstate, f);
-						f->httpstate = PARSE_HEADER;
-					}
-				}
-				if(f->remaining_response_len < 0){
-					f->remaining_response_len = 0;
-#ifdef RESOURCE_DEBUG
-                            printf("Resource is mid-content and super long record exceeds remaining resource len, FORFEIT (%p)\n", f);
-#endif
-					f->httpstate = FORFEIT_REST;
-				}
-			}
-
-			if(increment_ctr){//not decrypting record, must increment GCM ctr
-				fake_encrypt(f, 1);
-			}
-
-			remaining_packet_len -= remaining_packet_len;
-			if(f->partial_record_header_len > 0){
-				f->partial_record_header_len = 0;
-				free(f->partial_record_header);
-			}
-
-			break;
-		}
+                remaining_record_len = (record_len > remaining_packet_len) ? remaining_packet_len : record_len;
+                record_len = remaining_record_len;
+                //copy record to temporary ptr
+                record_ptr = malloc(remaining_record_len);
+                memcpy(record_ptr, p, remaining_record_len); //points to the beginning of record data
+            }
 
 #ifdef DEBUG_DOWN
-		printf("Received record\n");
-		printf("Bytes:\n");
-		for(int i=0; i< record_len; i++){
-			printf("%02x ", record_ptr[i]);
-		}
-		printf("\n");
+            printf("Received bytes (len %d)\n", remaining_record_len);
+            for(int i=0; i< remaining_record_len; i++){
+                printf("%02x ", p[i]);
+            }
+            printf("\n");
 #endif
 
-		//now decrypt the record
-		int32_t n = encrypt(f, record_ptr, record_ptr, record_len, 1,
-						record_hdr->type, 0, 0);
-		if(n < 0){
-			//do something smarter here
-			printf("Decryption failed\n");
-			if(f->partial_record_header_len > 0){
-				f->partial_record_header_len = 0;
-				free(f->partial_record_header);
-			}
-			return 0;
-		}
-		changed = 1;
+            record = p; // save location of original data
+            p = record_ptr;
+
+
+            if(partial){
+
+
+                //if we now have all of the record, decrypt full thing and check tag
+                if(f->partial_record_len == f->partial_record_total_len){
 
 #ifdef DEBUG_DOWN
-		printf("Decrypted new record\n");
-		//printf("Bytes:\n");
-		//for(int i=0; i< n; i++){
-		//	printf("%02x ", record_ptr[EVP_GCM_TLS_EXPLICIT_IV_LEN+i]);
-		//}
-		//printf("\n");
-		printf("Text:\n");
-		printf("%s\n", record_ptr+EVP_GCM_TLS_EXPLICIT_IV_LEN);
-		fflush(stdout);
+                    printf("Received full partial record (len=%d):\n", f->partial_record_len);
+                    for(int i=0; i< f->partial_record_len; i ++){
+                        printf("%02x", record_ptr[i]);
+                    }
+                    printf("\n");
+#endif
+                    n = encrypt(f, record_ptr, record_ptr, f->partial_record_len, 1, 0x17, 0, 0);
+                    if(n <= 0){
+                        free(f->partial_record_dec);
+                        free(f->partial_record);
+                        f->partial_record = NULL;
+                        f->partial_record_dec = NULL;
+
+                        f->partial_record_total_len = 0;
+                        f->partial_record_len = 0;
+                        return 0; //TODO: goto err or return correctly
+                    }
+
+                } else {
+
+                    //partially decrypt record
+                    n = partial_aes_gcm_tls_cipher(f, record_ptr, record_ptr, f->partial_record_len, 0);
+                    if(n <= 0){
+                        //do something smarter here
+                        printf("Decryption failed\n");
+                        if(f->partial_record_header_len > 0){
+                            f->partial_record_header_len = 0;
+                            free(f->partial_record_header);
+                        }
+                        return 0;//TODO: goto err to free record_ptr
+                    }
+
+                }
+
+                //copy already modified data
+                memcpy(p, f->partial_record_dec, partial_offset);
+                //now update pointer to past where we've already parsed
+                if(partial_offset){
+                    p += partial_offset;
+                    remaining_record_len = n + EVP_GCM_TLS_EXPLICIT_IV_LEN - partial_offset;
+                } else {
+                    p += EVP_GCM_TLS_EXPLICIT_IV_LEN;
+                    remaining_record_len = n;
+                }
+            } else {
+
+                    //now decrypt the record
+                    n = encrypt(f, record_ptr, record_ptr, remaining_record_len, 1,
+                                                    record_hdr->type, 0, 0);
+                    if(n < 0){
+                        //do something smarter here
+                        printf("Decryption failed\n");
+                        if(f->partial_record_header_len > 0){
+                            f->partial_record_header_len = 0;
+                            free(f->partial_record_header);
+                        }
+                        return 0;//TODO goto an err to free record_ptr
+                    }
+
+                    p += EVP_GCM_TLS_EXPLICIT_IV_LEN;
+                    remaining_record_len = n;
+            }
+            changed = 1;
+
+#ifdef DEBUG_DOWN
+            printf("Decrypted new record\n");
+            printf("Bytes:\n");
+            for(int i=0; i< n; i++){
+                printf("%02x ", record_ptr[EVP_GCM_TLS_EXPLICIT_IV_LEN+i]);
+            }
+            printf("\n");
+            printf("Text:\n");
+            printf("%s\n", record_ptr+EVP_GCM_TLS_EXPLICIT_IV_LEN);
+
+            printf("Parseable text:\n");
+            printf("%s\n", p);
+            fflush(stdout);
+
 #endif
 
-		p += EVP_GCM_TLS_EXPLICIT_IV_LEN;
-		char *len_ptr, *needle;
+            char *len_ptr, *needle;
 
-		remaining_record_len = n;
-
-		while(remaining_record_len > 0){
+            while(remaining_record_len > 0){
 
 #ifdef RESOURCE_DEBUG
-                    printf("Current state (flow %p): %x\n", f, f->httpstate);
+                printf("Current state (flow %p): %x\n", f, f->httpstate);
 #endif
 
 			switch(f->httpstate){
@@ -1159,6 +1179,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 
 						f->remaining_response_len -= remaining_record_len;
 						p += remaining_record_len;
+
 					
 						remaining_record_len = 0;
 					} else {
@@ -1176,7 +1197,9 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 						remaining_record_len -= f->remaining_response_len;
 						p += f->remaining_response_len;
 
+#ifdef DEBUG_DOWN
                                                 printf("Change state %x --> PARSE_HEADER (%p)\n", f->httpstate, f);
+#endif
 						f->httpstate = PARSE_HEADER;
 						f->remaining_response_len = 0;
 					}
@@ -1279,6 +1302,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 
 			}
 		}
+
 #ifdef DEBUG_DOWN
 		if(changed && f->replace_response){
 			printf("Resource is now\n");
@@ -1293,19 +1317,78 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 		}
 #endif
 
-		if((n = encrypt(f, record_ptr, record_ptr,
-						n + EVP_GCM_TLS_EXPLICIT_IV_LEN, 1, record_hdr->type,
-						1, 1)) < 0){
-			printf("UH OH, failed to re-encrypt record\n");
-			if(f->partial_record_header_len > 0){
-				f->partial_record_header_len = 0;
-				free(f->partial_record_header);
-			}
-			return 0;
-		}
+                if(partial){
+                    //partially encrypting data
 
+                    //first copy plaintext to flow struct
+                    memcpy(f->partial_record_dec + partial_offset, record_ptr+partial_offset, n + EVP_GCM_TLS_EXPLICIT_IV_LEN - partial_offset);
+
+                    n = partial_aes_gcm_tls_cipher(f, record_ptr, record_ptr, n+ EVP_GCM_TLS_EXPLICIT_IV_LEN, 1);
+                    if(n < 0){
+                        printf("Partial decryption failed!\n");
+                        return 0;
+                    }
 #ifdef DEBUG_DOWN
-		fprintf(stdout,"Flow: %x > %x (%s)\n", info->ip_hdr->src.s_addr, info->ip_hdr->dst.s_addr, (info->ip_hdr->src.s_addr != f->src_ip.s_addr)? "incoming":"outgoing");
+                    printf("Partially encrypted bytes:\n");
+                    for(int i=0; i < n + EVP_GCM_TLS_EXPLICIT_IV_LEN; i++){
+                        printf("%02x ", record_ptr[i]);
+                    }
+                    printf("\n");
+#endif
+
+                    //if we received all of the partial packet, add tag and release it
+                    if (f->partial_record_len == f->partial_record_total_len){
+
+                        //compute tag
+#ifdef DEBUG_DOWN
+                        partial_aes_gcm_tls_tag(f, record_ptr + n + EVP_GCM_TLS_EXPLICIT_IV_LEN, n);
+                        printf("tag: (%d bytes)\n", EVP_GCM_TLS_TAG_LEN);
+                        for(int i=0; i< EVP_GCM_TLS_TAG_LEN; i++){
+                            printf("%02x ", record_ptr[n + EVP_GCM_TLS_EXPLICIT_IV_LEN+i]);
+                        }
+                        printf("\n");
+#endif
+
+                        if(false_tag){//tag on original record was incorrect O.o add incorrect tag
+
+                        } else {//compute correct tag TODO: fill in
+
+                        }
+
+                        free(f->partial_record_dec);
+                        free(f->partial_record);
+                        f->partial_record = NULL;
+                        f->partial_record_dec = NULL;
+
+                        f->partial_record_total_len = 0;
+                        f->partial_record_len = 0;
+                        partial = 0;
+                    } else {
+                        //compute tag just to clear out ctx
+                        uint8_t *tag = emalloc(EVP_GCM_TLS_TAG_LEN);
+                        partial_aes_gcm_tls_tag(f, tag, EVP_GCM_TLS_TAG_LEN);
+                        free(tag);
+
+                    }
+                    p = record_ptr + partial_offset;
+
+                    partial_offset += n + EVP_GCM_TLS_EXPLICIT_IV_LEN - partial_offset;
+
+                } else {
+                    if((n = encrypt(f, record_ptr, record_ptr, n + EVP_GCM_TLS_EXPLICIT_IV_LEN,
+                                    1, record_hdr->type, 1, 1)) < 0){
+                            printf("UH OH, failed to re-encrypt record\n");
+                            if(f->partial_record_header_len > 0){
+                                    f->partial_record_header_len = 0;
+                                    free(f->partial_record_header);
+                            }
+                            return 0;
+                    }
+                    p = record_ptr;
+                }
+
+#ifdef DEBUG_DOWN2
+		fprintf(stdout,"Flow: %x:%d > %x:%d (%s)\n", info->ip_hdr->src.s_addr, ntohs(info->tcp_hdr->src_port), info->ip_hdr->dst.s_addr, ntohs(info->tcp_hdr->dst_port), (info->ip_hdr->src.s_addr != f->src_ip.s_addr)? "incoming":"outgoing");
 		fprintf(stdout,"ID number: %u\n", htonl(info->ip_hdr->id));
 		fprintf(stdout,"Sequence number: %u\n", htonl(info->tcp_hdr->sequence_num));
 		fprintf(stdout,"Acknowledgement number: %u\n", htonl(info->tcp_hdr->ack_num));
@@ -1316,7 +1399,10 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
                 printf("\n");
 #endif
 
-		p = record_ptr + record_len;
+                //Copy changed temporary data to original packet
+                memcpy(record, p, record_len);
+
+		p = record + record_len;
 		remaining_packet_len -= record_len;
 		if(f->partial_record_header_len > 0){
 			f->partial_record_header_len = 0;
@@ -1343,6 +1429,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
  */
 int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 
+    printf("In fill_with_ds\n");
 	uint8_t *p = data;
 	int32_t remaining = length;
 	struct slitheen_header *sl_hdr;

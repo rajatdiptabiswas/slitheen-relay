@@ -139,6 +139,8 @@
 #include <openssl/rand.h>
 #include <openssl/ssl.h>
 #include <openssl/sha.h>
+#include <openssl/aes.h>
+#include <openssl/modes.h>
 
 #include "ptwist.h"
 #include "crypto.h"
@@ -1172,6 +1174,9 @@ int init_ciphers(flow *f){
 	EVP_CIPHER_CTX *w_ctx;
 	EVP_CIPHER_CTX *w_ctx_srvr;
 	EVP_CIPHER_CTX *r_ctx_srvr;
+
+        GCM128_CONTEXT *o_gcm;
+
 	const EVP_CIPHER *c = f->cipher;
 
 	if(c == NULL){
@@ -1241,7 +1246,7 @@ int init_ciphers(flow *f){
 	r_ctx_srvr = EVP_CIPHER_CTX_new();
 	EVP_CIPHER_CTX_init(w_ctx_srvr);
 	EVP_CIPHER_CTX_init(r_ctx_srvr);
-	
+
 	/* Initialize MACs --- not needed for aes_256_gcm
 	write_mac = key_block + 2*key_len + 2*iv_len;
 	read_mac = key_block + 2*key_len + 2*iv_len + mac_len;
@@ -1300,10 +1305,24 @@ int init_ciphers(flow *f){
 	EVP_CIPHER_CTX_ctrl(w_ctx_srvr, EVP_CTRL_GCM_SET_IV_FIXED, EVP_GCM_TLS_FIXED_IV_LEN, read_iv);
 	EVP_CIPHER_CTX_ctrl(r_ctx_srvr, EVP_CTRL_GCM_SET_IV_FIXED, EVP_GCM_TLS_FIXED_IV_LEN, write_iv);
 
+        /* Set up gcm cipher ctx for partial decryption */
+        AES_KEY *key = ecalloc(1, sizeof(AES_KEY));
+        AES_set_encrypt_key(read_key, EVP_CIPHER_CTX_key_length(r_ctx)*8, key);
+        o_gcm = CRYPTO_gcm128_new( key, (block128_f) AES_encrypt);
+        f->gcm_ctx_key = key;
+
+	iv_len = EVP_CIPHER_CTX_iv_length(r_ctx);
+        f->gcm_ctx_iv = emalloc(iv_len);
+        f->gcm_ctx_ivlen = iv_len;
+        memcpy(f->gcm_ctx_iv, read_iv, EVP_GCM_TLS_FIXED_IV_LEN);
+
+        /* Assign ctxs to flow structure */
 	f->clnt_read_ctx = r_ctx;
 	f->clnt_write_ctx = w_ctx;
 	f->srvr_read_ctx = r_ctx_srvr;
 	f->srvr_write_ctx = w_ctx_srvr;
+
+        f->gcm_ctx_out = o_gcm;
 
 	free(key_block);
 	return 0;
@@ -1429,7 +1448,7 @@ int super_encrypt(client *c, uint8_t *data, uint32_t len){
 	uint8_t output[EVP_MAX_MD_SIZE];
 
 	//first encrypt the header	
-#ifdef DEBUG
+#ifdef DEBUG_DOWN
 	printf("Plaintext Header:\n");
 	for(int i=0; i< SLITHEEN_HEADER_LEN; i++){
 		printf("%02x ", p[i]);
@@ -1440,6 +1459,7 @@ int super_encrypt(client *c, uint8_t *data, uint32_t len){
 	hdr_ctx = EVP_CIPHER_CTX_new();
 
 	if(c->header_key == NULL){
+            printf("c->header_key is null\n");
 		retval = 0;
 		goto end;
 	}
@@ -1452,7 +1472,7 @@ int super_encrypt(client *c, uint8_t *data, uint32_t len){
 		goto end;
 	}
 
-#ifdef DEBUG
+#ifdef DEBUG_DOWN
 	printf("Encrypted Header (%d bytes)\n", out_len);
 	for(int i=0; i< out_len; i++){
 		printf("%02x ", p[i]);
@@ -1721,3 +1741,104 @@ int check_tag(byte key[16], const byte privkey[PTWIST_BYTES],
     return ret;
 }
 
+/* Modified GCM cipher function */
+
+
+/*
+ * Handle TLS GCM packet format. This consists of the last portion of the IV
+ * followed by the payload and finally the tag. On encrypt generate IV,
+ * encrypt payload and write the tag. On verify retrieve IV, decrypt payload
+ * and verify tag.
+ */
+
+#define EVP_C_DATA(kstruct, ctx) \
+        ((kstruct *)EVP_CIPHER_CTX_get_cipher_data(ctx))
+
+/*
+ * Handle TLS GCM packet format. This consists of the last portion of the IV
+ * followed by the payload and finally the tag. On encrypt generate IV,
+ * encrypt payload and write the tag. On verify retrieve IV, decrypt payload
+ * and verify tag.
+ */
+
+#define GCM_CTX_LEN 380 + sizeof(block128_f)
+
+int partial_aes_gcm_tls_cipher(flow *f, unsigned char *out,
+                              const unsigned char *in, size_t len, uint8_t enc)
+{
+
+    // Encrypt/decrypt must be performed in place 
+    int rv = -1;
+    if (out != in
+        || len < (EVP_GCM_TLS_EXPLICIT_IV_LEN + EVP_GCM_TLS_TAG_LEN))
+        return -1;
+
+    //set IV
+    uint8_t *iv = emalloc(f->gcm_ctx_ivlen);
+    memcpy(iv, f->gcm_ctx_iv, EVP_GCM_TLS_FIXED_IV_LEN);
+
+    if(enc){
+        memcpy(iv + f->gcm_ctx_ivlen - EVP_GCM_TLS_EXPLICIT_IV_LEN , out, EVP_GCM_TLS_EXPLICIT_IV_LEN);
+        memcpy(out, iv + f->gcm_ctx_ivlen - EVP_GCM_TLS_EXPLICIT_IV_LEN, EVP_GCM_TLS_EXPLICIT_IV_LEN);
+    } else {
+        memcpy(iv + f->gcm_ctx_ivlen - EVP_GCM_TLS_EXPLICIT_IV_LEN , f->partial_record, EVP_GCM_TLS_EXPLICIT_IV_LEN);
+    }
+    CRYPTO_gcm128_setiv(f->gcm_ctx_out, iv, f->gcm_ctx_ivlen);
+
+    // Fix buffer and length to point to payload
+    in += EVP_GCM_TLS_EXPLICIT_IV_LEN;
+    out += EVP_GCM_TLS_EXPLICIT_IV_LEN;
+    len -= EVP_GCM_TLS_EXPLICIT_IV_LEN;
+
+    //set AAD
+    uint8_t buf[13], seq[8];
+
+    memcpy(seq, f->read_seq, 8);
+
+    for(int i=7; i>=0; i--){
+        --seq[i];
+        if(seq[i] != 0xff)
+            break;
+    }
+
+    memcpy(buf, seq, 8);
+
+    buf[8] = 0x17;
+    buf[9] = 0x03;
+    buf[10] = 0x03;
+    buf[11] = len >> 8; //len >> 8;
+    buf[12] = len & 0xff;//len *0xff;
+
+    CRYPTO_gcm128_aad(f->gcm_ctx_out, buf, 13);
+
+    if(enc){
+        if ((len > 16) && CRYPTO_gcm128_encrypt(f->gcm_ctx_out, in, out, len))
+            goto err;
+    } else {
+        if ((len > 16) && CRYPTO_gcm128_decrypt(f->gcm_ctx_out, in, out, len))
+            goto err;
+    }
+    rv = len;
+
+err:
+    free(iv);
+
+    return rv;
+
+}
+
+/*
+ * Computes the tag for a (now full) record that was split in multiple parts across
+ * two or more packets.
+ *
+ * Input:
+ *  f: The corresponding flow
+ *  tag: a pointer to where the tag will be placed
+ *  len: the length of the original encryption
+ */
+void partial_aes_gcm_tls_tag(flow *f, unsigned char *tag, size_t len){
+
+
+    CRYPTO_gcm128_tag(f->gcm_ctx_out, tag, EVP_GCM_TLS_TAG_LEN);
+
+}

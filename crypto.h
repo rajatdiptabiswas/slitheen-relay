@@ -85,4 +85,6 @@ int check_tag(byte key[16], const byte privkey[PTWIST_BYTES],
 #define TLS_MD_EXTENDED_MASTER_SECRET_CONST "extended master secret"
 #define TLS_MD_EXTENDED_MASTER_SECRET_CONST_SIZE 22
 
+int partial_aes_gcm_tls_cipher(flow *f, unsigned char *out, const unsigned char *in, size_t len, uint8_t env);
+void partial_aes_gcm_tls_tag(flow *f, unsigned char *tag, size_t len);
 #endif

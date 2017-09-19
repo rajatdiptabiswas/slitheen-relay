@@ -134,6 +134,9 @@ flow *add_flow(struct packet_info *info) {
 	new_flow->outbox_offset = 0;
 	new_flow->partial_record_header = NULL;
 	new_flow->partial_record_header_len = 0;
+	new_flow->partial_record = NULL;
+	new_flow->partial_record_len = 0;
+	new_flow->partial_record_total_len = 0;
 	new_flow->remaining_record_len = 0;
 	new_flow->remaining_response_len = 0;
 	new_flow->httpstate = PARSE_HEADER;
@@ -152,6 +155,9 @@ flow *add_flow(struct packet_info *info) {
 	new_flow->clnt_write_ctx = NULL;
 	new_flow->srvr_read_ctx = NULL;
 	new_flow->srvr_write_ctx = NULL;
+	new_flow->gcm_ctx_out = NULL;
+        new_flow->gcm_ctx_iv = NULL;
+        new_flow->gcm_ctx_key = NULL;
 
 	memset(new_flow->read_seq, 0, 8);
 	memset(new_flow->write_seq, 0, 8);

@@ -32,6 +32,8 @@
 #include <semaphore.h>
 #include <openssl/bn.h>
 #include <openssl/ssl.h>
+#include <openssl/modes.h>
+#include <openssl/aes.h>
 #include "ptwist.h"
 #include "slitheen.h"
 #include "util.h"
@@ -179,6 +181,11 @@ typedef struct flow_st {
 	EVP_MD_CTX *write_mac_ctx;
         EVP_MD_CTX *hs_md_ctx;
 
+        GCM128_CONTEXT *gcm_ctx_out;
+        uint8_t *gcm_ctx_iv;
+        int32_t gcm_ctx_ivlen;
+        AES_KEY *gcm_ctx_key;
+
 	uint8_t client_random[SSL3_RANDOM_SIZE];
 	uint8_t server_random[SSL3_RANDOM_SIZE];
 	uint8_t master_secret[SSL3_MASTER_SECRET_SIZE];
@@ -200,6 +207,11 @@ typedef struct flow_st {
 
 	uint8_t *partial_record_header;
 	uint8_t partial_record_header_len;
+
+        uint8_t *partial_record;
+        uint8_t *partial_record_dec;
+        uint32_t partial_record_len;
+        uint32_t partial_record_total_len;
 
 	//locking
 	//pthread_mutex_t flow_lock = PTHREAD_MUTEX_INITIALIZER;
