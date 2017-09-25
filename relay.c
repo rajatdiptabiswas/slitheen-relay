@@ -991,6 +991,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 
                         f->partial_record_total_len = 0;
                         f->partial_record_len = 0;
+                        free(record_ptr);
                         return 0; //TODO: goto err or return correctly
                     }
 
@@ -1005,6 +1006,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
                             f->partial_record_header_len = 0;
                             free(f->partial_record_header);
                         }
+                        free(record_ptr);
                         return 0;//TODO: goto err to free record_ptr
                     }
 
@@ -1015,7 +1017,11 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
                 //now update pointer to past where we've already parsed
                 if(partial_offset){
                     p += partial_offset;
-                    remaining_record_len = n + EVP_GCM_TLS_EXPLICIT_IV_LEN - partial_offset;
+                    if(n + EVP_GCM_TLS_EXPLICIT_IV_LEN >= partial_offset){
+                        remaining_record_len = n + EVP_GCM_TLS_EXPLICIT_IV_LEN - partial_offset;
+                    } else {//only received last part of tag
+                        remaining_record_len = 0;
+                    }
                 } else {
                     p += EVP_GCM_TLS_EXPLICIT_IV_LEN;
                     remaining_record_len = n;
@@ -1032,6 +1038,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
                             f->partial_record_header_len = 0;
                             free(f->partial_record_header);
                         }
+                        free(record_ptr);
                         return 0;//TODO goto an err to free record_ptr
                     }
 
@@ -1062,6 +1069,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 
 #ifdef RESOURCE_DEBUG
                 printf("Current state (flow %p): %x\n", f, f->httpstate);
+                printf("Remaining record len: %d\n", remaining_record_len);
 #endif
 
 			switch(f->httpstate){
@@ -1118,7 +1126,9 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 
 					len_ptr = strstr((const char *) p, "Transfer-Encoding");
 					if(len_ptr != NULL){
+                                            printf("Transfer encoding\n");
 						if(!memcmp(len_ptr + 19, "chunked", 7)){
+                                            printf("Chunked\n");
 							//now find end of header
 							
 							len_ptr = strstr((const char *) p, "\r\n\r\n");
@@ -1126,8 +1136,13 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 								f->httpstate = BEGIN_CHUNK;
 								remaining_record_len -= (((uint8_t *)len_ptr - p) + 4);
 								p = (uint8_t *) len_ptr + 4;
-							}
-						}
+							} else {
+                                                            printf("Couldn't find end of header\n");
+                                                            f->httpstate = FORFEIT_REST;
+                                                        }
+						} else {// other encodings not yet implemented
+                                                    f->httpstate = FORFEIT_REST;
+                                                }
 					} else {
 						len_ptr = strstr((const char *) p, "Content-Length");
 						if(len_ptr != NULL){
@@ -1321,11 +1336,14 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
                     //partially encrypting data
 
                     //first copy plaintext to flow struct
-                    memcpy(f->partial_record_dec + partial_offset, record_ptr+partial_offset, n + EVP_GCM_TLS_EXPLICIT_IV_LEN - partial_offset);
+                    if(n + EVP_GCM_TLS_EXPLICIT_IV_LEN >= partial_offset){
+                        memcpy(f->partial_record_dec + partial_offset, record_ptr+partial_offset, n + EVP_GCM_TLS_EXPLICIT_IV_LEN - partial_offset);
+                    } //otherwise, this packet contains only part of the tag
 
                     n = partial_aes_gcm_tls_cipher(f, record_ptr, record_ptr, n+ EVP_GCM_TLS_EXPLICIT_IV_LEN, 1);
                     if(n < 0){
                         printf("Partial decryption failed!\n");
+                        free(record_ptr);
                         return 0;
                     }
 #ifdef DEBUG_DOWN
@@ -1382,6 +1400,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
                                     f->partial_record_header_len = 0;
                                     free(f->partial_record_header);
                             }
+                            free(record_ptr);
                             return 0;
                     }
                     p = record_ptr;
@@ -1408,6 +1427,8 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 			f->partial_record_header_len = 0;
 			free(f->partial_record_header);
 		}
+
+                free(record_ptr);//free temporary record
 
 	}
 

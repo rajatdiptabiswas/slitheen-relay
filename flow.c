@@ -135,6 +135,7 @@ flow *add_flow(struct packet_info *info) {
 	new_flow->partial_record_header = NULL;
 	new_flow->partial_record_header_len = 0;
 	new_flow->partial_record = NULL;
+	new_flow->partial_record_dec = NULL;
 	new_flow->partial_record_len = 0;
 	new_flow->partial_record_total_len = 0;
 	new_flow->remaining_record_len = 0;
@@ -576,6 +577,14 @@ int remove_flow(flow *f) {
         free(f->partial_record_header);
     }
 
+    if(f->partial_record_dec != NULL){
+        free(f->partial_record_dec);
+    }
+
+    if(f->partial_record != NULL){
+        free(f->partial_record);
+    }
+
 	//Clean up cipher ctxs
 #if OPENSSL_VERSION_NUMBER >= 0x1010000eL
 	EVP_MD_CTX_free(f->hs_md_ctx);
@@ -605,6 +614,18 @@ int remove_flow(flow *f) {
 	if(f->ecdh != NULL){
 		EC_KEY_free(f->ecdh);
 	}
+
+        if(f->gcm_ctx_out != NULL){
+           CRYPTO_gcm128_release(f->gcm_ctx_out);
+        }
+
+        if(f->gcm_ctx_iv != NULL){
+            free(f->gcm_ctx_iv);
+        }
+
+        if(f->gcm_ctx_key != NULL){
+            free(f->gcm_ctx_key);
+        }
 
     if(f->dh != NULL){
         DH_free(f->dh);

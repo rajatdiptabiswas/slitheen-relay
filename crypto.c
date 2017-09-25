@@ -645,6 +645,11 @@ int compute_master_secret(flow *f){
 		ctx = BN_CTX_new();
 
 		dh_srvr = f->dh;
+
+                if(dh_srvr == NULL){
+                    goto err;
+                }
+
 		dh_clnt = DHparams_dup(dh_srvr);
 
 #if OPENSSL_VERSION_NUMBER >= 0x1010000eL
@@ -705,7 +710,7 @@ int compute_master_secret(flow *f){
 
 #if OPENSSL_VERSION_NUMBER >= 0x1010000eL
                 if(!DH_set0_key(dh_clnt, pub_key, priv_key)){
-                    return 1;
+                    goto err;
                 }
                 const BIGNUM *srvr_pub, *srvr_priv;
                 DH_get0_key(dh_srvr, &srvr_pub, &srvr_priv);
@@ -769,14 +774,14 @@ int compute_master_secret(flow *f){
 #endif
 		tkey = f->ecdh;
 		if(tkey == NULL){
-			return 1;
+                    goto err;
 		}
 
 		srvr_group = EC_KEY_get0_group(tkey);
 		srvr_ecpoint = EC_KEY_get0_public_key(tkey);
 
 		if((srvr_group == NULL) || (srvr_ecpoint == NULL)) {
-			return 1;
+                    goto err;
 		}
 
 		if((clnt_ecdh = EC_KEY_new()) == NULL) {
@@ -1614,10 +1619,12 @@ void check_handshake(struct packet_info *info){
 		fclose(fp);
 
 		/* check tag*/ 
+                /*TODO: change back!
                 uint8_t context[4 + SSL3_RANDOM_SIZE - PTWIST_TAG_BYTES];
                 memcpy(context, &info->ip_hdr->dst.s_addr, 4);
                 memcpy(context + 4, hello_rand, SSL3_RANDOM_SIZE - PTWIST_TAG_BYTES);
-		res = check_tag(key, privkey, p, (const byte *)context, sizeof(context));
+		res = check_tag(key, privkey, p, (const byte *)context, sizeof(context));*/
+		res = check_tag(key, privkey, p, (const byte *)"context", 7);//TODO: delete
 		if (!res) {
 
 #ifdef DEBUG_HS
