@@ -1144,7 +1144,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
                                                     f->httpstate = FORFEIT_REST;
                                                 }
 					} else {
-						len_ptr = strstr((const char *) p, "Content-Length");
+						len_ptr = strstr((const char *) p, "Content-Length:");
 						if(len_ptr != NULL){
 							len_ptr += 15;
 							f->remaining_response_len = strtol((const char *) len_ptr, NULL, 10);
