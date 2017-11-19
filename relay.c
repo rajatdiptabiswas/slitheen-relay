@@ -1223,6 +1223,9 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 				case BEGIN_CHUNK:
 					{
 					int32_t chunk_size = strtol((const char *) p, NULL, 16);
+#ifdef RESOURCE_DEBUG
+                                        printf("BEGIN_CHUNK: chunk size is %d\n", chunk_size);
+#endif
 					if(chunk_size == 0){
 						f->httpstate = END_BODY;
 					} else {
@@ -1459,7 +1462,7 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 	client *client_ptr = f->client_ptr;
 
 	if(client_ptr == NULL){
-            printf("ERROR: no client\n");
+            //printf("ERROR: no client\n");
             return 1;
         }
 
