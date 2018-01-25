@@ -4,9 +4,9 @@ TARGETS=slitheen
 
 all: $(TARGETS)
 
-slitheen.o flow.o ptwist168.o crypto.o relay.o cryptothread.o util.o:: ptwist.h flow.h slitheen.h crypto.h relay.h cryptothread.h util.h
+slitheen.o packet.o flow.o ptwist168.o crypto.o relay.o cryptothread.o util.o:: ptwist.h flow.h packet.h slitheen.h crypto.h relay.h cryptothread.h util.h
 
-slitheen: slitheen.o flow.o ptwist168.o crypto.o relay.o cryptothread.o util.o relay.h crypto.h ptwist.h flow.h slitheen.h cryptothread.h util.h
+slitheen: slitheen.o packet.o flow.o ptwist168.o crypto.o relay.o cryptothread.o util.o relay.h crypto.h ptwist.h flow.h packet.h slitheen.h cryptothread.h util.h
 	gcc -g -ggdb -o $@ $^ -L/usr/local/lib -I/usr/local/include -lssl -lcrypto -lpcap -lpthread -ldl
 
 clean:

@@ -52,7 +52,7 @@
 #include <openssl/rand.h>
 
 #include "relay.h"
-#include "slitheen.h"
+#include "packet.h"
 #include "flow.h"
 #include "crypto.h"
 #include "util.h"

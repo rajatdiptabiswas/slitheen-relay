@@ -35,7 +35,7 @@
 #include <openssl/modes.h>
 #include <openssl/aes.h>
 #include "ptwist.h"
-#include "slitheen.h"
+#include "packet.h"
 #include "util.h"
 
 #define MAX_FLOWS 10

@@ -39,7 +39,7 @@
 
 #include "flow.h"
 #include "crypto.h"
-#include "slitheen.h"
+#include "packet.h"
 #include "relay.h"
 #include "util.h"
 

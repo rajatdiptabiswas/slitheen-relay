@@ -145,7 +145,7 @@
 #include "ptwist.h"
 #include "crypto.h"
 #include "flow.h"
-#include "slitheen.h"
+#include "packet.h"
 #include "util.h"
 #include "relay.h"
 
