@@ -25,8 +25,8 @@
  * for the parts of the OpenSSL library used as well as that of the covered
  * work.
  */
-#ifndef __PTWIST_H__
-#define __PTWIST_H__
+#ifndef PTWIST_H
+#define PTWIST_H
 
 #define PTWIST_BITS 168  /* must be a multiple of 8 */
 #define PTWIST_BYTES (PTWIST_BITS/8)

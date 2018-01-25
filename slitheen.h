@@ -25,8 +25,8 @@
  * for the parts of the OpenSSL library used as well as that of the covered
  * work.
  */
-#ifndef _SLITHEEN_H_
-#define _SLITHEEN_H_
+#ifndef SLITHEEN_H
+#define SLITHEEN_H
 #include <stdlib.h>
 #include <netinet/in.h>
 #include <pcap.h>

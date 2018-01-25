@@ -1,4 +1,4 @@
-/* until.h
+/* util.h
  *
  * Wrapper functions and data structures
  *
@@ -29,8 +29,8 @@
  * work.
  */
 
-#ifndef _UTIL_H_
-#define _UTIL_H_
+#ifndef UTIL_H
+#define UTIL_H
 
 #include <stddef.h>
 #include <stdint.h>

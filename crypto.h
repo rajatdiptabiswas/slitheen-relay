@@ -25,8 +25,8 @@
  * work.
  */
 
-#ifndef _CRYPTO_H_
-#define _CRYPTO_H_
+#ifndef CRYPTO_H
+#define CRYPTO_H
 
 #include "flow.h"
 #include "ptwist.h"

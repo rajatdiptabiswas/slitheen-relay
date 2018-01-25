@@ -25,8 +25,8 @@
  * for the parts of the OpenSSL library used as well as that of the covered
  * work.
  */
-#ifndef _RELAY_H_
-#define _RELAY_H_
+#ifndef RELAY_H
+#define RELAY_H
 
 #include "flow.h"
 #include <stdint.h>

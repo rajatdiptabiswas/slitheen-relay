@@ -25,8 +25,8 @@
  * for the parts of the OpenSSL library used as well as that of the covered
  * work.
  */
-#ifndef __RELAY_H__
-#define __RELAY_H__
+#ifndef FLOW_H
+#define FLOW_H
 
 #include <netinet/in.h>
 #include <semaphore.h>

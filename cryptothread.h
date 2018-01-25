@@ -25,8 +25,8 @@
  * work.
  */
 
-#ifndef _CRYPTOTHREAD_H_
-#define _CRYPTOTHREAD_H_
+#ifndef CRYPTOTHREAD_H
+#define CRYPTOTHREAD_H
 
 #include <openssl/crypto.h>
 void init_crypto_locks(void);
