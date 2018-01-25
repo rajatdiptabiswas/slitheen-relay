@@ -582,7 +582,7 @@ int mark_finished_hash(flow *f, uint8_t *hs){
 #if OPENSSL_VERSION_NUMBER >= 0x1010000eL
     ctx = HMAC_CTX_new();
 #else
-    ctx = ecalloc(1, sizeof(HMAC_CTX));
+    ctx = scalloc(1, sizeof(HMAC_CTX));
     HMAC_CTX_init(ctx);
 #endif
     HMAC_Init_ex(ctx, f->key, 16, EVP_sha256(), NULL);
@@ -631,7 +631,7 @@ int compute_master_secret(flow *f){
 
     int ok =1;
 
-    uint8_t *pre_master_secret = ecalloc(1, PRE_MASTER_MAX_LEN);
+    uint8_t *pre_master_secret = scalloc(1, PRE_MASTER_MAX_LEN);
 
     int32_t pre_master_len;
     uint32_t l;
@@ -871,7 +871,7 @@ int compute_master_secret(flow *f){
 #if OPENSSL_VERSION_NUMBER >= 0x1010000eL
         md_ctx = EVP_MD_CTX_new();
 #else
-        md_ctx = ecalloc(1, sizeof(EVP_MD_CTX));
+        md_ctx = scalloc(1, sizeof(EVP_MD_CTX));
         EVP_MD_CTX_init(md_ctx);
 #endif
         EVP_MD_CTX_copy_ex(md_ctx, f->hs_md_ctx);
@@ -1072,11 +1072,11 @@ int PRF(flow *f, uint8_t *secret, int32_t secret_len,
     ctx_tmp = EVP_MD_CTX_new();
     ctx_init = EVP_MD_CTX_new();
 #else
-    ctx = ecalloc(1, sizeof(EVP_MD_CTX));
+    ctx = scalloc(1, sizeof(EVP_MD_CTX));
     EVP_MD_CTX_init(ctx);
-    ctx_tmp = ecalloc(1, sizeof(EVP_MD_CTX));
+    ctx_tmp = scalloc(1, sizeof(EVP_MD_CTX));
     EVP_MD_CTX_init(ctx_tmp);
-    ctx_init = ecalloc(1, sizeof(EVP_MD_CTX));
+    ctx_init = scalloc(1, sizeof(EVP_MD_CTX));
     EVP_MD_CTX_init(ctx_init);
 #endif
     if (ctx == NULL || ctx_tmp == NULL || ctx_init == NULL)
@@ -1200,7 +1200,7 @@ int init_ciphers(flow *f){
     mac_len = EVP_MD_size(f->message_digest);
     int32_t total_len = key_len + iv_len + mac_len;
     total_len *= 2;
-    uint8_t *key_block = ecalloc(1, total_len);
+    uint8_t *key_block = scalloc(1, total_len);
 
     PRF(f, f->master_secret, SSL3_MASTER_SECRET_SIZE,
             (uint8_t *) TLS_MD_KEY_EXPANSION_CONST, TLS_MD_KEY_EXPANSION_CONST_SIZE,
@@ -1311,13 +1311,13 @@ int init_ciphers(flow *f){
     EVP_CIPHER_CTX_ctrl(r_ctx_srvr, EVP_CTRL_GCM_SET_IV_FIXED, EVP_GCM_TLS_FIXED_IV_LEN, write_iv);
 
     /* Set up gcm cipher ctx for partial decryption */
-    AES_KEY *key = ecalloc(1, sizeof(AES_KEY));
+    AES_KEY *key = scalloc(1, sizeof(AES_KEY));
     AES_set_encrypt_key(read_key, EVP_CIPHER_CTX_key_length(r_ctx)*8, key);
     o_gcm = CRYPTO_gcm128_new( key, (block128_f) AES_encrypt);
     f->gcm_ctx_key = key;
 
     iv_len = EVP_CIPHER_CTX_iv_length(r_ctx);
-    f->gcm_ctx_iv = emalloc(iv_len);
+    f->gcm_ctx_iv = smalloc(iv_len);
     f->gcm_ctx_ivlen = iv_len;
     memcpy(f->gcm_ctx_iv, read_iv, EVP_GCM_TLS_FIXED_IV_LEN);
 
@@ -1389,7 +1389,7 @@ void generate_client_super_keys(uint8_t *secret, client *c){
     key_len = EVP_CIPHER_key_length(EVP_aes_256_cbc());
     mac_len = EVP_MD_size(md);
     int32_t total_len = 2*key_len + mac_len;
-    uint8_t *key_block = ecalloc(1, total_len);
+    uint8_t *key_block = scalloc(1, total_len);
 
     PRF(NULL, shared_secret, SLITHEEN_SUPER_SECRET_SIZE,
             (uint8_t *) SLITHEEN_SUPER_CONST, SLITHEEN_SUPER_CONST_SIZE,
@@ -1423,8 +1423,8 @@ void generate_client_super_keys(uint8_t *secret, client *c){
     mac_key = EVP_PKEY_new_mac_key(EVP_PKEY_HMAC, NULL, mac_secret, mac_len);
     EVP_DigestSignInit(mac_ctx, NULL, md, NULL, mac_key);
 
-    c->header_key = emalloc(key_len);
-    c->body_key = emalloc(key_len);
+    c->header_key = smalloc(key_len);
+    c->body_key = smalloc(key_len);
 
     memcpy(c->header_key, hdr_key, key_len);
     memcpy(c->body_key, bdy_key, key_len);
@@ -1532,7 +1532,7 @@ int super_encrypt(client *c, uint8_t *data, uint32_t len){
 #if OPENSSL_VERSION_NUMBER >= 0x1010000eL
     mac_ctx = EVP_MD_CTX_new();
 #else
-    mac_ctx = ecalloc(1, sizeof(EVP_MD_CTX));
+    mac_ctx = scalloc(1, sizeof(EVP_MD_CTX));
     EVP_MD_CTX_init(mac_ctx);
 #endif
 
@@ -1780,7 +1780,7 @@ int partial_aes_gcm_tls_cipher(flow *f, unsigned char *out,
         return -1;
 
     //set IV
-    uint8_t *iv = emalloc(f->gcm_ctx_ivlen);
+    uint8_t *iv = smalloc(f->gcm_ctx_ivlen);
     memcpy(iv, f->gcm_ctx_iv, EVP_GCM_TLS_FIXED_IV_LEN);
 
     if(enc){

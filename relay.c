@@ -147,9 +147,9 @@ int read_header(flow *f, struct packet_info *info){
         //check to see whether the previous record has finished
         if(f->upstream_remaining > info->app_data_len){
             //ignore entire packet for now
-            queue_block *new_block = emalloc(sizeof(queue_block));
+            queue_block *new_block = smalloc(sizeof(queue_block));
 
-            uint8_t *block_data = emalloc(info->app_data_len);
+            uint8_t *block_data = smalloc(info->app_data_len);
             memcpy(block_data, p, info->app_data_len);
 
             new_block->len = info->app_data_len;
@@ -175,7 +175,7 @@ int read_header(flow *f, struct packet_info *info){
             //process what we have
             record_hdr = (struct record_header*) f->upstream_queue->data;
             record_length = RECORD_LEN(record_hdr);
-            record_ptr = emalloc(record_length+ RECORD_HEADER_LEN);
+            record_ptr = smalloc(record_length+ RECORD_HEADER_LEN);
 
             queue_block *current = f->upstream_queue;
             int32_t offset =0;
@@ -199,9 +199,9 @@ int read_header(flow *f, struct packet_info *info){
         if(record_length + RECORD_HEADER_LEN > info->app_data_len){
 
             //add info to upstream queue
-            queue_block *new_block = emalloc(sizeof(queue_block));
+            queue_block *new_block = smalloc(sizeof(queue_block));
 
-            uint8_t *block_data = emalloc(info->app_data_len);
+            uint8_t *block_data = smalloc(info->app_data_len);
 
             memcpy(block_data, p, info->app_data_len);
 
@@ -226,7 +226,7 @@ int read_header(flow *f, struct packet_info *info){
     }
 
     p+= RECORD_HEADER_LEN;
-    uint8_t *decrypted_data = emalloc(record_length);
+    uint8_t *decrypted_data = smalloc(record_length);
 
     memcpy(decrypted_data, p, record_length);
 
@@ -315,7 +315,7 @@ int read_header(flow *f, struct packet_info *info){
             decode_len = decode_len*3/4;
         }
 
-        upstream_data = emalloc(decode_len + 1);
+        upstream_data = smalloc(decode_len + 1);
 
         BIO *bio, *b64;
         bio = BIO_new_mem_buf(message, -1);
@@ -375,13 +375,13 @@ int read_header(flow *f, struct packet_info *info){
                 //create new client
 
                 printf("Creating a new client\n");
-                client *new_client = emalloc(sizeof(client));
+                client *new_client = smalloc(sizeof(client));
 
                 memcpy(new_client->slitheen_id, p, output_len);
-                new_client->streams = emalloc(sizeof(stream_table));
+                new_client->streams = smalloc(sizeof(stream_table));
 
                 new_client->streams->first = NULL;
-                new_client->downstream_queue = emalloc(sizeof(data_queue));
+                new_client->downstream_queue = smalloc(sizeof(data_queue));
                 sem_init(&(new_client->queue_lock), 0, 1);
 
                 new_client->downstream_queue->first_block = NULL;
@@ -469,11 +469,11 @@ int read_header(flow *f, struct packet_info *info){
                         free(record_ptr);
                     return 1;
                 }
-                uint8_t *initial_data = emalloc(stream_len);
+                uint8_t *initial_data = smalloc(stream_len);
                 memcpy(initial_data, p, stream_len);
 
                 struct proxy_thread_data *thread_data = 
-                    emalloc(sizeof(struct proxy_thread_data));
+                    smalloc(sizeof(struct proxy_thread_data));
                 thread_data->initial_data = initial_data;
                 thread_data->initial_len = stream_len;
                 thread_data->stream_id = stream_id;
@@ -487,7 +487,7 @@ int read_header(flow *f, struct packet_info *info){
                 pthread_detach(proxy_thread);
                 printf("Spawned thread for proxy\n");
                 //add stream to table
-                stream *new_stream = emalloc(sizeof(stream));
+                stream *new_stream = smalloc(sizeof(stream));
                 new_stream->stream_id = stream_id;
                 new_stream->pipefd = pipefd[1];
                 new_stream->next = NULL;
@@ -585,7 +585,7 @@ void *proxy_covert_site(void *data){
             domain_len = p[0];
             p++;
             data_len --;
-            uint8_t *domain_name = emalloc(domain_len+1);
+            uint8_t *domain_name = smalloc(domain_len+1);
             memcpy(domain_name, p, domain_len);
             domain_name[domain_len] = '\0';
             struct hostent *host;
@@ -647,7 +647,7 @@ void *proxy_covert_site(void *data){
         }
     }
 
-    uint8_t *buffer = emalloc(BUFSIZ);
+    uint8_t *buffer = smalloc(BUFSIZ);
     int32_t buffer_len = BUFSIZ;
     //now select on reading from the pipe and from the socket
     for(;;){
@@ -737,7 +737,7 @@ void *proxy_covert_site(void *data){
             int32_t bytes_read;
             bytes_read = recv(handle, buffer, buffer_len, 0);
             if(bytes_read > 0){
-                uint8_t *new_data = emalloc(bytes_read);
+                uint8_t *new_data = smalloc(bytes_read);
                 memcpy(new_data, buffer, bytes_read);
 #ifdef DEBUG_PROXY
                 printf("PROXY (id %d): read %d bytes from censored site\n",stream_id, bytes_read);
@@ -750,7 +750,7 @@ void *proxy_covert_site(void *data){
 #endif
 
                 //make a new queue block
-                queue_block *new_block = emalloc(sizeof(queue_block));
+                queue_block *new_block = smalloc(sizeof(queue_block));
                 new_block->len = bytes_read;
                 new_block->offset = 0;
                 new_block->data = new_data;
@@ -903,7 +903,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
                 printf("\n");
                 fflush(stdout);
 #endif
-                f->partial_record_header = emalloc(RECORD_HEADER_LEN);
+                f->partial_record_header = smalloc(RECORD_HEADER_LEN);
                 memcpy(f->partial_record_header, p, remaining_packet_len);
                 f->partial_record_header_len = remaining_packet_len;
                 remaining_packet_len -= remaining_packet_len;
@@ -947,8 +947,8 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
             if(record_len > remaining_packet_len){
                 partial = 1;
 
-                f->partial_record = emalloc(record_len);
-                f->partial_record_dec = emalloc(record_len);
+                f->partial_record = smalloc(record_len);
+                f->partial_record_dec = smalloc(record_len);
                 f->partial_record_total_len = record_len;
                 f->partial_record_len = remaining_packet_len;
                 partial_offset = 0;
@@ -1407,7 +1407,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
                 partial = 0;
             } else {
                 //compute tag just to clear out ctx
-                uint8_t *tag = emalloc(EVP_GCM_TLS_TAG_LEN);
+                uint8_t *tag = smalloc(EVP_GCM_TLS_TAG_LEN);
                 partial_aes_gcm_tls_tag(f, tag, EVP_GCM_TLS_TAG_LEN);
                 free(tag);
 

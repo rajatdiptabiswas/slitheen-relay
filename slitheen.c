@@ -174,7 +174,7 @@ void *sniff_packets(void *args){
 void got_packet(uint8_t *args, const struct pcap_pkthdr *header, const uint8_t *packet){
     struct inject_args *iargs = (struct inject_args *) args;
 
-    uint8_t *tmp_packet = emalloc(header->len);
+    uint8_t *tmp_packet = smalloc(header->len);
     memcpy(tmp_packet, packet, header->len);
 
     process_packet(iargs, header, tmp_packet);
@@ -187,7 +187,7 @@ void got_packet(uint8_t *args, const struct pcap_pkthdr *header, const uint8_t *
  */
 void process_packet(struct inject_args *iargs, const struct pcap_pkthdr *header, uint8_t *packet){
 
-    struct packet_info *info = emalloc(sizeof(struct packet_info));
+    struct packet_info *info = smalloc(sizeof(struct packet_info));
     extract_packet_headers(packet, info);
 
     //Ignore non-TCP packets (shouldn't actually get any)
@@ -270,7 +270,7 @@ void process_packet(struct inject_args *iargs, const struct pcap_pkthdr *header,
 
                 if(seq_num > expected_seq){
                     //Delay and process later
-                    frame *new_frame = ecalloc(1, sizeof(frame));
+                    frame *new_frame = scalloc(1, sizeof(frame));
                     new_frame->iargs = iargs;
                     new_frame->packet = packet;
                     new_frame->header = header;
@@ -366,9 +366,9 @@ void save_packet(flow *f, struct packet_info *info){
     uint32_t seq_num = htonl(info->tcp_hdr->sequence_num);
 
     //add new app block
-    packet *new_block = ecalloc(1, sizeof(packet));
+    packet *new_block = scalloc(1, sizeof(packet));
     new_block->seq_num = htonl(info->tcp_hdr->sequence_num);
-    new_block->data = ecalloc(1, info->app_data_len);
+    new_block->data = scalloc(1, info->app_data_len);
     memcpy(new_block->data, info->app_data, info->app_data_len);
     new_block->len = info->app_data_len;
     new_block->next = NULL;

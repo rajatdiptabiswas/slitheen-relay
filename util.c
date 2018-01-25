@@ -37,7 +37,7 @@
 #include "util.h"
 
 //malloc macro that exits on error
-void *emalloc(size_t size){
+void *smalloc(size_t size){
     void *ptr = malloc(size);
     if (ptr == NULL){
         fprintf(stderr, "Memory failure. Exiting...\n");
@@ -48,7 +48,7 @@ void *emalloc(size_t size){
 }
 
 //calloc macro that exits on error
-void *ecalloc(size_t nmemb, size_t size){
+void *scalloc(size_t nmemb, size_t size){
     void *ptr = calloc(nmemb, size);
     if(ptr == NULL){
         fprintf(stderr, "Memory failure. Exiting...\n");
@@ -63,7 +63,7 @@ void *ecalloc(size_t nmemb, size_t size){
  */
 
 queue *init_queue(){
-    queue *new_queue = emalloc(sizeof(queue));
+    queue *new_queue = smalloc(sizeof(queue));
 
     new_queue->first = NULL;
     new_queue->last = NULL;
@@ -79,7 +79,7 @@ void enqueue(queue *list, void *data){
     if(data == NULL){
         return;
     }
-    element *new_elem = emalloc(sizeof(element));
+    element *new_elem = smalloc(sizeof(element));
     new_elem->data = data;
     new_elem->next = NULL;
 

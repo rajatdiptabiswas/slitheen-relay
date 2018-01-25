@@ -35,8 +35,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-void *emalloc(size_t size);
-void *ecalloc(size_t nmemb, size_t size);
+void *smalloc(size_t size);
+void *scalloc(size_t nmemb, size_t size);
 
 //Standard queue data structure
 typedef struct element_st {

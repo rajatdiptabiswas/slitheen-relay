@@ -52,13 +52,13 @@ sem_t flow_table_lock;
 /* Initialize the table of tagged flows */
 int init_tables(void) {
 
-    table = emalloc(sizeof(flow_table));
+    table = smalloc(sizeof(flow_table));
     table->first_entry = NULL;
     table->len = 0;
 
     sem_init(&flow_table_lock, 0, 1);
 
-    clients = emalloc(sizeof(client_table));
+    clients = smalloc(sizeof(client_table));
     clients->first = NULL;
     printf("initialized downstream queue\n");
 
@@ -68,9 +68,9 @@ int init_tables(void) {
 
 /* Add a new flow to the tagged flow table */
 flow *add_flow(struct packet_info *info) {
-    flow_entry *entry = emalloc(sizeof(flow_entry));
+    flow_entry *entry = smalloc(sizeof(flow_entry));
 
-    flow *new_flow = emalloc(sizeof(flow));
+    flow *new_flow = smalloc(sizeof(flow));
 
     entry->f = new_flow;
     entry->next = NULL;
@@ -83,17 +83,17 @@ flow *add_flow(struct packet_info *info) {
     new_flow->ref_ctr = 1;
     new_flow->removed = 0;
 
-    new_flow->upstream_app_data = emalloc(sizeof(app_data_queue));
+    new_flow->upstream_app_data = smalloc(sizeof(app_data_queue));
     new_flow->upstream_app_data->first_packet = NULL;
-    new_flow->downstream_app_data = emalloc(sizeof(app_data_queue));
+    new_flow->downstream_app_data = smalloc(sizeof(app_data_queue));
     new_flow->downstream_app_data->first_packet = NULL;
 
     new_flow->upstream_seq_num = ntohl(info->tcp_hdr->sequence_num);
     new_flow->downstream_seq_num = ntohl(info->tcp_hdr->ack_num);
 
-    new_flow->us_frame_queue = emalloc(sizeof(frame_queue));
+    new_flow->us_frame_queue = smalloc(sizeof(frame_queue));
     new_flow->us_frame_queue->first_frame = NULL;
-    new_flow->ds_frame_queue = emalloc(sizeof(frame_queue));
+    new_flow->ds_frame_queue = smalloc(sizeof(frame_queue));
     new_flow->ds_frame_queue->first_frame = NULL;
 
     new_flow->streams=NULL;
@@ -113,13 +113,13 @@ flow *add_flow(struct packet_info *info) {
     new_flow->us_hs_queue = init_queue();
     new_flow->ds_hs_queue = init_queue();
 
-    new_flow->us_packet_chain = emalloc(sizeof(packet_chain));
+    new_flow->us_packet_chain = smalloc(sizeof(packet_chain));
     new_flow->us_packet_chain->expected_seq_num = ntohl(info->tcp_hdr->sequence_num);
     new_flow->us_packet_chain->record_len = 0;
     new_flow->us_packet_chain->remaining_record_len = 0;
     new_flow->us_packet_chain->first_packet = NULL;
 
-    new_flow->ds_packet_chain = emalloc(sizeof(packet_chain));
+    new_flow->ds_packet_chain = smalloc(sizeof(packet_chain));
     new_flow->ds_packet_chain->expected_seq_num = ntohl(info->tcp_hdr->ack_num);
     new_flow->ds_packet_chain->record_len = 0;
     new_flow->ds_packet_chain->remaining_record_len = 0;
@@ -783,7 +783,7 @@ flow *check_flow(struct packet_info *info){
 }
 
 int init_session_cache(void){
-    sessions = emalloc(sizeof(session_cache));
+    sessions = smalloc(sizeof(session_cache));
 
     sessions->length = 0;
     sessions->first_session = NULL;
@@ -908,7 +908,7 @@ int check_extensions(flow *f, uint8_t *hs, uint32_t len){
     p += 2; //skip version
     p += SSL3_RANDOM_SIZE; //skip random
 
-    session *new_session = emalloc(sizeof(session));
+    session *new_session = smalloc(sizeof(session));
     new_session->session_id_len = (uint8_t) p[0];
     new_session->session_ticket_len = 0;
     new_session->session_ticket = NULL;
@@ -958,7 +958,7 @@ int check_extensions(flow *f, uint8_t *hs, uint32_t len){
             if(ext_len > 0){
                 f->resume_session = 1;
                 new_session->session_ticket_len = ext_len;
-                new_session->session_ticket = ecalloc(1, ext_len);
+                new_session->session_ticket = scalloc(1, ext_len);
                 memcpy(new_session->session_ticket, p, ext_len);
                 f->current_session = new_session;
             }
@@ -1059,7 +1059,7 @@ int save_session_id(flow *f, uint8_t *hs){
     p += 2; //skip version
     p += SSL3_RANDOM_SIZE; //skip random
 
-    session *new_session = emalloc(sizeof(session));
+    session *new_session = smalloc(sizeof(session));
 
     new_session->session_id_len = (uint8_t) p[0];
     if((new_session->session_id_len <= 0) || (new_session->session_id_len > SSL_MAX_SSL_SESSION_ID_LENGTH)){
@@ -1137,7 +1137,7 @@ int save_session_ticket(flow *f, uint8_t *hs, uint32_t len){
 #endif
     uint8_t *p = hs + HANDSHAKE_HEADER_LEN;
     p += 4;
-    session *new_session = ecalloc(1, sizeof(session));
+    session *new_session = scalloc(1, sizeof(session));
 
     new_session->session_id_len = 0;
 
@@ -1145,7 +1145,7 @@ int save_session_ticket(flow *f, uint8_t *hs, uint32_t len){
     new_session->next = NULL;
     p += 2;
 
-    uint8_t *ticket = emalloc(new_session->session_ticket_len);
+    uint8_t *ticket = smalloc(new_session->session_ticket_len);
 
     memcpy(ticket, p, new_session->session_ticket_len);
     new_session->session_ticket = ticket;
@@ -1201,12 +1201,12 @@ int add_packet(flow *f, struct packet_info *info){
         return 0;
     }
 
-    packet *new_packet = emalloc(sizeof(packet));
+    packet *new_packet = smalloc(sizeof(packet));
 
     new_packet->seq_num = ntohl(info->tcp_hdr->sequence_num);
     new_packet->len = info->app_data_len;
 
-    uint8_t *packet_data = emalloc(new_packet->len);
+    uint8_t *packet_data = smalloc(new_packet->len);
     memcpy(packet_data, info->app_data, new_packet->len);
 
     new_packet->data = packet_data;
@@ -1262,7 +1262,7 @@ int add_packet(flow *f, struct packet_info *info){
         //if full record, give to update_flow
         if(chain->remaining_record_len <= new_packet->len){//we have enough to make a record
             chain->remaining_record_len = 0;
-            uint8_t *record = emalloc(chain->record_len);
+            uint8_t *record = smalloc(chain->record_len);
             uint32_t record_len = chain->record_len;
             uint32_t tmp_len = chain->record_len;
 

@@ -91,7 +91,7 @@ void extract_packet_headers(uint8_t *packet, struct packet_info *info){
 /** Copies a packet_info structure and returns a pointer to the duplicate.
 */
 struct packet_info *copy_packet_info(struct packet_info *src_info){
-    struct packet_info *dst_info = emalloc(sizeof(struct packet_info));
+    struct packet_info *dst_info = smalloc(sizeof(struct packet_info));
 
     dst_info->ip_hdr = src_info->ip_hdr;
     dst_info->tcp_hdr = src_info->tcp_hdr;
