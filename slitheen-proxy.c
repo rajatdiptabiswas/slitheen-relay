@@ -50,112 +50,112 @@ void update_window_expiration(flow *f, struct packet_info *info);
 void retransmit(flow *f, struct packet_info *info, uint32_t data_to_fill);
 
 void usage(void){
-	printf("Usage: slitheen-proxy [internal network interface] [NAT interface]\n");
+    printf("Usage: slitheen-proxy [internal network interface] [NAT interface]\n");
 }
 
 int main(int argc, char *argv[]){
-	pthread_t t1, t2;
+    pthread_t t1, t2;
 
-	char *dev1 = NULL; /* Device that leads to the internal network */
-	char *dev2 = NULL; /* Device that leads out to the world */
+    char *dev1 = NULL; /* Device that leads to the internal network */
+    char *dev2 = NULL; /* Device that leads out to the world */
 
-	struct sniff_args outbound;
-	struct sniff_args inbound;
+    struct sniff_args outbound;
+    struct sniff_args inbound;
 
-	if (argc != 3) { 
-		usage();
-		return(2);
-	}
-	dev1 = argv[1];
-	dev2 = argv[2];
+    if (argc != 3) { 
+        usage();
+        return(2);
+    }
+    dev1 = argv[1];
+    dev2 = argv[2];
 
-	if(init_tables()){
-		exit(1);
-	}
-	if(init_session_cache()){
-		exit(1);
-	}
-	init_crypto_locks();
+    if(init_tables()){
+        exit(1);
+    }
+    if(init_session_cache()){
+        exit(1);
+    }
+    init_crypto_locks();
 
-	/* Create threads */
-	outbound.readdev = dev1;
-	outbound.writedev = dev2;
+    /* Create threads */
+    outbound.readdev = dev1;
+    outbound.writedev = dev2;
 
-	inbound.readdev = dev2;
-	inbound.writedev = dev1;
+    inbound.readdev = dev2;
+    inbound.writedev = dev1;
 
-	pthread_create(&t1, NULL, sniff_packets, (void *) &outbound);
-	pthread_create(&t2, NULL, sniff_packets, (void *) &inbound);
+    pthread_create(&t1, NULL, sniff_packets, (void *) &outbound);
+    pthread_create(&t2, NULL, sniff_packets, (void *) &inbound);
 
-	pthread_join(t1, NULL);
-	pthread_join(t2, NULL);
+    pthread_join(t1, NULL);
+    pthread_join(t2, NULL);
 
-	pthread_exit(NULL);
+    pthread_exit(NULL);
 
-	crypto_locks_cleanup();
+    crypto_locks_cleanup();
 
-	return(0);
+    return(0);
 }
 
 void *sniff_packets(void *args){
-	pcap_t *rd_handle;
-	pcap_t *wr_handle;
-	char rd_errbuf[BUFSIZ];
-	char wr_errbuf[BUFSIZ];
-        uint8_t MAC[ETHER_ADDR_LEN];
-	bpf_u_int32 mask;
-	bpf_u_int32 net;
+    pcap_t *rd_handle;
+    pcap_t *wr_handle;
+    char rd_errbuf[BUFSIZ];
+    char wr_errbuf[BUFSIZ];
+    uint8_t MAC[ETHER_ADDR_LEN];
+    bpf_u_int32 mask;
+    bpf_u_int32 net;
 
-	char *readdev, *writedev;
-	struct sniff_args *arg_st = (struct sniff_args *) args;
-	readdev = arg_st->readdev;
-	writedev = arg_st->writedev;
+    char *readdev, *writedev;
+    struct sniff_args *arg_st = (struct sniff_args *) args;
+    readdev = arg_st->readdev;
+    writedev = arg_st->writedev;
 
-        //Find MAC address of each interface
-        struct ifreq ifr;
-        int s = socket(AF_INET, SOCK_DGRAM, 0);
-        strcpy(ifr.ifr_name, writedev);
-        ioctl(s, SIOCGIFHWADDR, &ifr);
-        memcpy(MAC, ifr.ifr_hwaddr.sa_data, ETHER_ADDR_LEN);
-        close(s);
+    //Find MAC address of each interface
+    struct ifreq ifr;
+    int s = socket(AF_INET, SOCK_DGRAM, 0);
+    strcpy(ifr.ifr_name, writedev);
+    ioctl(s, SIOCGIFHWADDR, &ifr);
+    memcpy(MAC, ifr.ifr_hwaddr.sa_data, ETHER_ADDR_LEN);
+    close(s);
 
-	if (pcap_lookupnet(readdev, &net, &mask, rd_errbuf) == -1){
-		fprintf(stderr, "Can't get netmask for device %s\n", readdev);
-		exit(2);
-	}
+    if (pcap_lookupnet(readdev, &net, &mask, rd_errbuf) == -1){
+        fprintf(stderr, "Can't get netmask for device %s\n", readdev);
+        exit(2);
+    }
 
-	rd_handle = pcap_open_live(readdev, BUFSIZ, 0, 0, rd_errbuf);
-	if (rd_handle == NULL){
-		fprintf(stderr, "Couldn't open device %s: %s\n", readdev, rd_errbuf);
-	}
+    rd_handle = pcap_open_live(readdev, BUFSIZ, 0, 0, rd_errbuf);
+    if (rd_handle == NULL){
+        fprintf(stderr, "Couldn't open device %s: %s\n", readdev, rd_errbuf);
+    }
 
-	if(pcap_datalink(rd_handle) != DLT_EN10MB) {
-		fprintf(stderr, "Device %s does not provide Ethernet headers - not supported\n", readdev);
-		exit(2);
-	}
+    if(pcap_datalink(rd_handle) != DLT_EN10MB) {
+        fprintf(stderr, "Device %s does not provide Ethernet headers - not supported\n", readdev);
+        exit(2);
+    }
 
-	if(pcap_setdirection(rd_handle, PCAP_D_IN)){
-		fprintf(stderr, "Platform does not support write direction. Update filters with MAC address\n");
-		exit(2);
-	}
+    if(pcap_setdirection(rd_handle, PCAP_D_IN)){
+        fprintf(stderr, "Platform does not support write direction. Update filters with MAC address\n");
+        exit(2);
+    }
 
-	wr_handle = pcap_open_live(writedev, BUFSIZ, 0, 0, wr_errbuf);
-	if (wr_handle == NULL){
-		fprintf(stderr, "Couldn't open device %s: %s\n", writedev, wr_errbuf);
-	}
+    wr_handle = pcap_open_live(writedev, BUFSIZ, 0, 0, wr_errbuf);
+    if (wr_handle == NULL){
+        fprintf(stderr, "Couldn't open device %s: %s\n", writedev, wr_errbuf);
+    }
 
-        struct inject_args iargs;
-        iargs.mac_addr = MAC;
-        iargs.write_dev = wr_handle;
+    struct inject_args iargs;
+    iargs.mac_addr = MAC;
+    iargs.write_dev = wr_handle;
 
 
-	/*callback function*/
-	pcap_loop(rd_handle, -1, got_packet, (unsigned char *) &iargs);
+    /*callback function*/
+    pcap_loop(rd_handle, -1, got_packet, (unsigned char *) &iargs);
 
-	/*Sniff a packet*/
-	pcap_close(rd_handle);
+    /*Sniff a packet*/
+    pcap_close(rd_handle);
 
-	return NULL;
+    return NULL;
 }
 
 
@@ -226,7 +226,7 @@ void process_packet(struct inject_args *iargs, const struct pcap_pkthdr *header,
     /* Now if flow is in table, update state */
     flow *observed;
     if((observed = check_flow(info)) != NULL){
-    
+
 #ifdef DEBUG
         /*Check sequence number and replay application data if necessary*/
         fprintf(stdout,"Flow: %x:%d > %x:%d (%s)\n", info->ip_hdr->src.s_addr, ntohs(info->tcp_hdr->src_port), info->ip_hdr->dst.s_addr, ntohs(info->tcp_hdr->dst_port), (info->ip_hdr->src.s_addr != observed->src_ip.s_addr)? "incoming":"outgoing");
@@ -336,7 +336,7 @@ void process_packet(struct inject_args *iargs, const struct pcap_pkthdr *header,
             /* add packet to application data queue */
             save_packet(observed, info);
         }
-        
+
 
         /*process and release held frames with current sequence numbers*/
         frame_queue *queue = (incoming) ? observed->ds_frame_queue : observed->us_frame_queue;
@@ -450,7 +450,7 @@ void save_packet(flow *f, struct packet_info *info){
 #endif
                 }
             }
-                
+
             saved_data = saved_data->next;
 
         }
@@ -591,7 +591,7 @@ void retransmit(flow *f, struct packet_info *info, uint32_t data_to_fill){
             }
         } else { //seq_num > saved_data->seq_num
             uint32_t offset = seq_num - saved_data->seq_num;
-            
+
             if(offset > saved_data->len){
                 saved_data = saved_data->next;
                 offset -= saved_data->len;
@@ -621,70 +621,70 @@ void retransmit(flow *f, struct packet_info *info, uint32_t data_to_fill){
  */
 void extract_packet_headers(uint8_t *packet, struct packet_info *info){
 
-	/* First fill in IP header */
-	uint8_t *p = packet;
-	p += ETHER_HEADER_LEN; //skip ethernet header
-	info->ip_hdr = (struct ip_header*) p;
-	info->size_ip_hdr = IP_HEADER_LEN(info->ip_hdr);
-	
-	/* Verify this is an IP packet */
-	if( (info->ip_hdr->versionihl >>4) != 4){
-		info->ip_hdr = NULL;
-		info->size_ip_hdr = 0;
-		info->tcp_hdr = NULL;
-		info->size_tcp_hdr = 0;
-		info->record_hdr = NULL;
-		return;
-	}
+    /* First fill in IP header */
+    uint8_t *p = packet;
+    p += ETHER_HEADER_LEN; //skip ethernet header
+    info->ip_hdr = (struct ip_header*) p;
+    info->size_ip_hdr = IP_HEADER_LEN(info->ip_hdr);
 
-	/* If this is a TCP segment, fill in TCP header */
-	if (info->ip_hdr->proto == IPPROTO_TCP){
-		p += info->size_ip_hdr;	//skip IP header
+    /* Verify this is an IP packet */
+    if( (info->ip_hdr->versionihl >>4) != 4){
+        info->ip_hdr = NULL;
+        info->size_ip_hdr = 0;
+        info->tcp_hdr = NULL;
+        info->size_tcp_hdr = 0;
+        info->record_hdr = NULL;
+        return;
+    }
 
-		info->tcp_hdr = (struct tcp_header*) p;
-		info->size_tcp_hdr = TCP_HEADER_LEN(info->tcp_hdr);
-		p += info->size_tcp_hdr;
-	} else {
-		info->tcp_hdr = NULL;
-		info->size_tcp_hdr = 0;
-		info->record_hdr = NULL;
-		return;
-	}
+    /* If this is a TCP segment, fill in TCP header */
+    if (info->ip_hdr->proto == IPPROTO_TCP){
+        p += info->size_ip_hdr;	//skip IP header
+
+        info->tcp_hdr = (struct tcp_header*) p;
+        info->size_tcp_hdr = TCP_HEADER_LEN(info->tcp_hdr);
+        p += info->size_tcp_hdr;
+    } else {
+        info->tcp_hdr = NULL;
+        info->size_tcp_hdr = 0;
+        info->record_hdr = NULL;
+        return;
+    }
 
 
-	/* If the application data contains a TLS record, fill in hdr */
-	info->app_data_len = htons(info->ip_hdr->len) - (info->size_ip_hdr + info->size_tcp_hdr);
-	if(info->app_data_len > 0){
-		info->app_data = p;
-		info->record_hdr = (struct tls_header*) p;
-		
-		//check to see if this is a valid record
-		if((info->record_hdr->type < 0x14) || (info->record_hdr->type > 0x18)){
-			info->record_hdr = NULL;
-		}
+    /* If the application data contains a TLS record, fill in hdr */
+    info->app_data_len = htons(info->ip_hdr->len) - (info->size_ip_hdr + info->size_tcp_hdr);
+    if(info->app_data_len > 0){
+        info->app_data = p;
+        info->record_hdr = (struct tls_header*) p;
 
-	} else {
-		info->record_hdr = NULL;
-		info->app_data = NULL;
-	}
+        //check to see if this is a valid record
+        if((info->record_hdr->type < 0x14) || (info->record_hdr->type > 0x18)){
+            info->record_hdr = NULL;
+        }
 
-	return;
+    } else {
+        info->record_hdr = NULL;
+        info->app_data = NULL;
+    }
+
+    return;
 
 }
 
 /** Copies a packet_info structure and returns a pointer to the duplicate.
- */
+*/
 struct packet_info *copy_packet_info(struct packet_info *src_info){
-	struct packet_info *dst_info = emalloc(sizeof(struct packet_info));
+    struct packet_info *dst_info = emalloc(sizeof(struct packet_info));
 
-	dst_info->ip_hdr = src_info->ip_hdr;
-	dst_info->tcp_hdr = src_info->tcp_hdr;
+    dst_info->ip_hdr = src_info->ip_hdr;
+    dst_info->tcp_hdr = src_info->tcp_hdr;
 
-	dst_info->size_tcp_hdr = src_info->size_tcp_hdr;
-	dst_info->size_ip_hdr = src_info->size_ip_hdr;
+    dst_info->size_tcp_hdr = src_info->size_tcp_hdr;
+    dst_info->size_ip_hdr = src_info->size_ip_hdr;
 
-	dst_info->app_data = src_info->app_data;
-	dst_info->app_data_len = src_info->app_data_len;
+    dst_info->app_data = src_info->app_data;
+    dst_info->app_data_len = src_info->app_data_len;
 
-	return dst_info;
+    return dst_info;
 }

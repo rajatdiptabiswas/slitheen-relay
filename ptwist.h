@@ -59,6 +59,6 @@ typedef unsigned char byte;
  * matter.)  Multiply that point by seckey and set out to the
  * x-coordinate of the result. */
 void ptwist_pointmul(byte out[PTWIST_BYTES], const byte x[PTWIST_BYTES],
-	const byte seckey[PTWIST_BYTES]);
+        const byte seckey[PTWIST_BYTES]);
 
 #endif

@@ -41,7 +41,7 @@ void *emalloc(size_t size){
     void *ptr = malloc(size);
     if (ptr == NULL){
         fprintf(stderr, "Memory failure. Exiting...\n");
-	exit(1);
+        exit(1);
     }
 
     return ptr;
@@ -105,7 +105,7 @@ void *dequeue(queue *list){
 
     void *data = list->first->data;
     element *target =list->first;
-    
+
     list->first = target->next;
 
     free(target);
@@ -122,7 +122,7 @@ void *dequeue(queue *list){
  */
 
 void *peek(queue *list, int32_t n){
-    
+
     int32_t i;
     element *target = list->first;
 
@@ -151,9 +151,9 @@ void remove_queue(queue *list){
     while(data != NULL){
         free(data);
         data = dequeue(list);
-    
+
     }
-    
+
     free(list);
 }
 

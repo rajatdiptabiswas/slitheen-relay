@@ -230,23 +230,23 @@ static int nid_list[] = {
  *  	0 on success, 1 on failure
  */
 int update_handshake_hash(flow *f, uint8_t *hs){
-	//find handshake length
-	const struct handshake_header *hs_hdr;
-	uint8_t *p = hs;
-	hs_hdr = (struct handshake_header*) p;
-	uint32_t hs_len = HANDSHAKE_MESSAGE_LEN(hs_hdr);
-	
-	EVP_DigestUpdate(f->hs_md_ctx, hs, hs_len+4);
+    //find handshake length
+    const struct handshake_header *hs_hdr;
+    uint8_t *p = hs;
+    hs_hdr = (struct handshake_header*) p;
+    uint32_t hs_len = HANDSHAKE_MESSAGE_LEN(hs_hdr);
+
+    EVP_DigestUpdate(f->hs_md_ctx, hs, hs_len+4);
 
 #ifdef DEBUG_HS_EXTRA
-	printf("SLITHEEN: adding to handshake hash:\n");
-	for(int i=0; i< hs_len + 4; i++){
-		printf("%02x ", hs[i]);
-	}
-	printf("\n");
+    printf("SLITHEEN: adding to handshake hash:\n");
+    for(int i=0; i< hs_len + 4; i++){
+        printf("%02x ", hs[i]);
+    }
+    printf("\n");
 #endif
 
-	return 0;
+    return 0;
 }
 /** Extracts the server parameters from the server key
  *  exchange message
@@ -260,180 +260,180 @@ int update_handshake_hash(flow *f, uint8_t *hs){
  *  	0 on success, 1 on failure
  */
 int extract_parameters(flow *f, uint8_t *hs){
-	uint8_t *p;
-	long i;
+    uint8_t *p;
+    long i;
 
-	int ok=1;
+    int ok=1;
 
-	p = hs + HANDSHAKE_HEADER_LEN;
+    p = hs + HANDSHAKE_HEADER_LEN;
 
-	if(f->keyex_alg == 1){
-		DH *dh;
+    if(f->keyex_alg == 1){
+        DH *dh;
 
-		if((dh = DH_new()) == NULL){
-			return 1;
-		}
+        if((dh = DH_new()) == NULL){
+            return 1;
+        }
 
-		/* Extract prime modulus */
-		n2s(p,i);
-
-#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
-                BIGNUM *prime = NULL;
-		if(!(prime = BN_bin2bn(p,i,NULL))){
-			return 1;
-		}
-#else
-		if(!(dh->p = BN_bin2bn(p,i,NULL))){
-			return 1;
-		}
-#endif
-		p += i;
-
-		/* Extract generator */
-		n2s(p,i);
+        /* Extract prime modulus */
+        n2s(p,i);
 
 #if OPENSSL_VERSION_NUMBER >= 0x1010000eL
-                BIGNUM *group = NULL;
-		if(!(group = BN_bin2bn(p,i,NULL))){
-			return 1;
-		}
-
-                if(!DH_set0_pqg(dh, prime, NULL, group)){
-                    return 1;
-                }
+        BIGNUM *prime = NULL;
+        if(!(prime = BN_bin2bn(p,i,NULL))){
+            return 1;
+        }
 #else
-		if(!(dh->g = BN_bin2bn(p,i,NULL))){
-			return 1;
-		}
+        if(!(dh->p = BN_bin2bn(p,i,NULL))){
+            return 1;
+        }
 #endif
-		p += i;
+        p += i;
 
-		/* Extract server public value */
-		n2s(p,i);
+        /* Extract generator */
+        n2s(p,i);
 
 #if OPENSSL_VERSION_NUMBER >= 0x1010000eL
-                BIGNUM *pub = NULL;
-		if(!(pub = BN_bin2bn(p,i,NULL))){
-			return 1;
-		}
-                if(!DH_set0_key(dh, pub, NULL)){
-                    return 1;
-                }
+        BIGNUM *group = NULL;
+        if(!(group = BN_bin2bn(p,i,NULL))){
+            return 1;
+        }
+
+        if(!DH_set0_pqg(dh, prime, NULL, group)){
+            return 1;
+        }
 #else
-		if(!(dh->pub_key = BN_bin2bn(p,i,NULL))){
-			return 1;
-		}
+        if(!(dh->g = BN_bin2bn(p,i,NULL))){
+            return 1;
+        }
+#endif
+        p += i;
+
+        /* Extract server public value */
+        n2s(p,i);
+
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+        BIGNUM *pub = NULL;
+        if(!(pub = BN_bin2bn(p,i,NULL))){
+            return 1;
+        }
+        if(!DH_set0_key(dh, pub, NULL)){
+            return 1;
+        }
+#else
+        if(!(dh->pub_key = BN_bin2bn(p,i,NULL))){
+            return 1;
+        }
 #endif
 
-		f->dh = dh;
-	} else if (f->keyex_alg == 2){
-		EC_KEY *ecdh;
-		EC_GROUP *ngroup;
-		const EC_GROUP *group;
+        f->dh = dh;
+    } else if (f->keyex_alg == 2){
+        EC_KEY *ecdh;
+        EC_GROUP *ngroup;
+        const EC_GROUP *group;
 
-		BN_CTX *bn_ctx = NULL;
-		EC_POINT *srvr_ecpoint = NULL;
-		int curve_nid = 0;
-		int encoded_pt_len = 0;
+        BN_CTX *bn_ctx = NULL;
+        EC_POINT *srvr_ecpoint = NULL;
+        int curve_nid = 0;
+        int encoded_pt_len = 0;
 
-		if(p[0] != 0x03){//not a named curve
-			goto err;
-		}
+        if(p[0] != 0x03){//not a named curve
+            goto err;
+        }
 
-		//int curve_id = (p[1] << 8) + p[2];
-		int curve_id = *(p+2);
+        //int curve_id = (p[1] << 8) + p[2];
+        int curve_id = *(p+2);
 #ifdef DEBUG_HS
-                printf("Using curve number %d\n", curve_id);
+        printf("Using curve number %d\n", curve_id);
 #endif
-		if((curve_id < 0) || ((unsigned int)curve_id >
-						            sizeof(nid_list) / sizeof(nid_list[0]))){
-			goto err;
-		}
-			
-		curve_nid = nid_list[curve_id-1];
+        if((curve_id < 0) || ((unsigned int)curve_id >
+                    sizeof(nid_list) / sizeof(nid_list[0]))){
+            goto err;
+        }
+
+        curve_nid = nid_list[curve_id-1];
 
 
 #if OPENSSL_VERSION_NUMBER >= 0x1010000eL
-                if(curve_nid == NID_X25519){
-                    //this is a custom curve and must be handled differently
-                    EVP_PKEY *key = EVP_PKEY_new();
+        if(curve_nid == NID_X25519){
+            //this is a custom curve and must be handled differently
+            EVP_PKEY *key = EVP_PKEY_new();
 
-                    if (key == NULL || !EVP_PKEY_set_type(key, curve_nid)){
-                        EVP_PKEY_free(key);
-                        goto err;
-                    }
+            if (key == NULL || !EVP_PKEY_set_type(key, curve_nid)){
+                EVP_PKEY_free(key);
+                goto err;
+            }
 
-                    p += 3;
-                    encoded_pt_len = *p;
-                    p += 1;
+            p += 3;
+            encoded_pt_len = *p;
+            p += 1;
 
-                    EVP_PKEY_set1_tls_encodedpoint(key, p, encoded_pt_len);
-                    f->srvr_key = key;
-                    
+            EVP_PKEY_set1_tls_encodedpoint(key, p, encoded_pt_len);
+            f->srvr_key = key;
 
-                } else {
+
+        } else {
 #endif	
-                    if((ecdh = EC_KEY_new()) == NULL) {
-                            goto err;
-                    }
+            if((ecdh = EC_KEY_new()) == NULL) {
+                goto err;
+            }
 
-                    ngroup = EC_GROUP_new_by_curve_name(curve_nid);
+            ngroup = EC_GROUP_new_by_curve_name(curve_nid);
 
-                    if(ngroup == NULL){
-                        printf("couldn't get curve by name (%d)\n", curve_nid);
-                            goto err;
-                    }
+            if(ngroup == NULL){
+                printf("couldn't get curve by name (%d)\n", curve_nid);
+                goto err;
+            }
 
-                    if(EC_KEY_set_group(ecdh, ngroup) == 0){
-                        printf("couldn't set group\n");
-                            goto err;
-                    }
-                    EC_GROUP_free(ngroup);
+            if(EC_KEY_set_group(ecdh, ngroup) == 0){
+                printf("couldn't set group\n");
+                goto err;
+            }
+            EC_GROUP_free(ngroup);
 
-                    group = EC_KEY_get0_group(ecdh);
+            group = EC_KEY_get0_group(ecdh);
 
-                    p += 3;
+            p += 3;
 
-                    /* Get EC point */
-                    if (((srvr_ecpoint = EC_POINT_new(group)) == NULL) || 
-                                    ((bn_ctx = BN_CTX_new()) == NULL)) {
-                            goto err;
-                    }
+            /* Get EC point */
+            if (((srvr_ecpoint = EC_POINT_new(group)) == NULL) || 
+                    ((bn_ctx = BN_CTX_new()) == NULL)) {
+                goto err;
+            }
 
-                    encoded_pt_len = *p;
-                    p += 1;
+            encoded_pt_len = *p;
+            p += 1;
 
-                    if(EC_POINT_oct2point(group, srvr_ecpoint, p, encoded_pt_len, 
-                                            bn_ctx) == 0){
-                            goto err;
-                    }
-                    EC_KEY_set_public_key(ecdh, srvr_ecpoint);
-                    f->ecdh = ecdh;
+            if(EC_POINT_oct2point(group, srvr_ecpoint, p, encoded_pt_len, 
+                        bn_ctx) == 0){
+                goto err;
+            }
+            EC_KEY_set_public_key(ecdh, srvr_ecpoint);
+            f->ecdh = ecdh;
 
 #if OPENSSL_VERSION_NUMBER >= 0x1010000eL
-                }
+        }
 #endif
 
-		ecdh = NULL;
-		BN_CTX_free(bn_ctx);
-		bn_ctx = NULL;
-		EC_POINT_free(srvr_ecpoint);
-		srvr_ecpoint = NULL;
-		ok=0;
-		
-err:
-		if(bn_ctx != NULL){
-			BN_CTX_free(bn_ctx);
-		}
-		if(srvr_ecpoint != NULL){
-			EC_POINT_free(srvr_ecpoint);
-		}
-		if(ecdh != NULL){
-			EC_KEY_free(ecdh);
-		}
+        ecdh = NULL;
+        BN_CTX_free(bn_ctx);
+        bn_ctx = NULL;
+        EC_POINT_free(srvr_ecpoint);
+        srvr_ecpoint = NULL;
+        ok=0;
 
-	}
-	return ok;
+err:
+        if(bn_ctx != NULL){
+            BN_CTX_free(bn_ctx);
+        }
+        if(srvr_ecpoint != NULL){
+            EC_POINT_free(srvr_ecpoint);
+        }
+        if(ecdh != NULL){
+            EC_KEY_free(ecdh);
+        }
+
+    }
+    return ok;
 }
 
 /* Encrypt/Decrypt a TLS record
@@ -455,75 +455,75 @@ err:
  * 		length of the output data
  */
 int encrypt(flow *f, uint8_t *input, uint8_t *output, int32_t len, int32_t incoming, int32_t type, int32_t enc, uint8_t re){
-	uint8_t *p = input;
-	
-	EVP_CIPHER_CTX *ds = (incoming) ? ((enc) ? f->srvr_write_ctx : f->clnt_read_ctx) : ((enc) ? f->clnt_write_ctx : f->srvr_read_ctx);
-	if(ds == NULL){
-		printf("FAIL\n");
-		return 1;
-	}
+    uint8_t *p = input;
 
-	uint8_t *seq;
-	seq = (incoming) ? f->read_seq : f->write_seq;
+    EVP_CIPHER_CTX *ds = (incoming) ? ((enc) ? f->srvr_write_ctx : f->clnt_read_ctx) : ((enc) ? f->clnt_write_ctx : f->srvr_read_ctx);
+    if(ds == NULL){
+        printf("FAIL\n");
+        return 1;
+    }
 
-	if(enc && re){
-		for(int i=7; i>=0; i--){
-			--seq[i];
-			if(seq[i] != 0xff)
-				break;
-		}
-	}
+    uint8_t *seq;
+    seq = (incoming) ? f->read_seq : f->write_seq;
 
-	/*if(f->application && (ds->iv[EVP_GCM_TLS_FIXED_IV_LEN] == 0)){
-		//fill in rest of iv
-		for(int i = EVP_GCM_TLS_FIXED_IV_LEN; i< ds->cipher->iv_len; i++){
-			ds->iv[i] = p[i- EVP_GCM_TLS_FIXED_IV_LEN];
-		}
-	}*/
+    if(enc && re){
+        for(int i=7; i>=0; i--){
+            --seq[i];
+            if(seq[i] != 0xff)
+                break;
+        }
+    }
+
+    /*if(f->application && (ds->iv[EVP_GCM_TLS_FIXED_IV_LEN] == 0)){
+    //fill in rest of iv
+    for(int i = EVP_GCM_TLS_FIXED_IV_LEN; i< ds->cipher->iv_len; i++){
+    ds->iv[i] = p[i- EVP_GCM_TLS_FIXED_IV_LEN];
+    }
+    }*/
 
 #ifdef DEBUG_HS_EXTRA
-	printf("\t\tiv: ");
-	for(int i=0; i<ds->cipher->iv_len; i++){
-		printf("%02X ", ds->iv[i]);
-	}
-	printf("\n");
+    printf("\t\tiv: ");
+    for(int i=0; i<ds->cipher->iv_len; i++){
+        printf("%02X ", ds->iv[i]);
+    }
+    printf("\n");
 #endif
 
-	uint8_t buf[13];
-	memcpy(buf, seq, 8);
+    uint8_t buf[13];
+    memcpy(buf, seq, 8);
 
-	for(int i=7; i>=0; i--){
-		++seq[i];
-		if(seq[i] != 0)
-			break;
-	}
-	
-	buf[8] = type;
-	buf[9] = 0x03;
-	buf[10] = 0x03;
-	buf[11] = len >> 8; //len >> 8;
-	buf[12] = len & 0xff;//len *0xff;
-	int32_t pad = EVP_CIPHER_CTX_ctrl(ds, EVP_CTRL_AEAD_TLS1_AAD,
-			13, buf); // = int32_t pad?
+    for(int i=7; i>=0; i--){
+        ++seq[i];
+        if(seq[i] != 0)
+            break;
+    }
 
-	if(enc)
-		len += pad;
+    buf[8] = type;
+    buf[9] = 0x03;
+    buf[10] = 0x03;
+    buf[11] = len >> 8; //len >> 8;
+    buf[12] = len & 0xff;//len *0xff;
+    int32_t pad = EVP_CIPHER_CTX_ctrl(ds, EVP_CTRL_AEAD_TLS1_AAD,
+            13, buf); // = int32_t pad?
 
-	int32_t n = EVP_Cipher(ds, p, p, len); //decrypt in place
-	if(n<0) return 0;
+    if(enc)
+        len += pad;
+
+    int32_t n = EVP_Cipher(ds, p, p, len); //decrypt in place
+    if(n<0) return 0;
 
 #ifdef DEBUG
-	printf("decrypted data:\n");
-	for(int i=0; i< len; i++){
-		printf("%02x ", p[EVP_GCM_TLS_EXPLICIT_IV_LEN+i]);
-	}
-	printf("\n");
+    printf("decrypted data:\n");
+    for(int i=0; i< len; i++){
+        printf("%02x ", p[EVP_GCM_TLS_EXPLICIT_IV_LEN+i]);
+    }
+    printf("\n");
 #endif
 
-	if(!enc)
-		p[EVP_GCM_TLS_EXPLICIT_IV_LEN+n] = '\0';
+    if(!enc)
+        p[EVP_GCM_TLS_EXPLICIT_IV_LEN+n] = '\0';
 
-	return n;
+    return n;
 }
 
 
@@ -539,18 +539,18 @@ int encrypt(flow *f, uint8_t *input, uint8_t *output, int32_t len, int32_t incom
  */
 int fake_encrypt(flow *f, int32_t incoming){
 
-	uint8_t *seq = (incoming) ? f->read_seq : f->write_seq;
+    uint8_t *seq = (incoming) ? f->read_seq : f->write_seq;
 
-	for(int i=7; i>=0; i--){
-		++seq[i];
-		if(seq[i] != 0)
-			break;
-	}
+    for(int i=7; i>=0; i--){
+        ++seq[i];
+        if(seq[i] != 0)
+            break;
+    }
 
-	return 0;
+    return 0;
 
 }
-	
+
 
 /** Mark the hash in a downstream TLS finished message
  *
@@ -570,39 +570,39 @@ int fake_encrypt(flow *f, int32_t incoming){
  *                      been updated
  */
 int mark_finished_hash(flow *f, uint8_t *hs){
-	HMAC_CTX *ctx = NULL;
-	uint8_t hmac_output[EVP_MAX_MD_SIZE];
-	unsigned int hmac_output_len;
+    HMAC_CTX *ctx = NULL;
+    uint8_t hmac_output[EVP_MAX_MD_SIZE];
+    unsigned int hmac_output_len;
 
-	// Ensure this is a Finished message, of length 12 bytes
-	if (memcmp(hs, "\x14\x00\x00\x0c", 4)) {
-		return 1;
-	}
+    // Ensure this is a Finished message, of length 12 bytes
+    if (memcmp(hs, "\x14\x00\x00\x0c", 4)) {
+        return 1;
+    }
 
 #if OPENSSL_VERSION_NUMBER >= 0x1010000eL
-        ctx = HMAC_CTX_new();
+    ctx = HMAC_CTX_new();
 #else
-        ctx = ecalloc(1, sizeof(HMAC_CTX));
-        HMAC_CTX_init(ctx);
+    ctx = ecalloc(1, sizeof(HMAC_CTX));
+    HMAC_CTX_init(ctx);
 #endif
-	HMAC_Init_ex(ctx, f->key, 16, EVP_sha256(), NULL);
-	HMAC_Update(ctx, (const unsigned char *)SLITHEEN_FINISHED_INPUT_CONST, SLITHEEN_FINISHED_INPUT_CONST_SIZE);
-	HMAC_Update(ctx, hs+4, 12);
-	HMAC_Final(ctx, hmac_output, &hmac_output_len);
+    HMAC_Init_ex(ctx, f->key, 16, EVP_sha256(), NULL);
+    HMAC_Update(ctx, (const unsigned char *)SLITHEEN_FINISHED_INPUT_CONST, SLITHEEN_FINISHED_INPUT_CONST_SIZE);
+    HMAC_Update(ctx, hs+4, 12);
+    HMAC_Final(ctx, hmac_output, &hmac_output_len);
 #if OPENSSL_VERSION_NUMBER >= 0x1010000eL
-	HMAC_CTX_free(ctx);
+    HMAC_CTX_free(ctx);
 #else
-	HMAC_CTX_cleanup(ctx);
-        free(ctx);
+    HMAC_CTX_cleanup(ctx);
+    free(ctx);
 #endif
 
-	if (hmac_output_len != 32) {
-		return 1;
-	}
+    if (hmac_output_len != 32) {
+        return 1;
+    }
 
-	memmove(hs+4, hmac_output, 12);
+    memmove(hs+4, hmac_output, 12);
 
-	return 0;
+    return 0;
 }
 
 
@@ -618,341 +618,341 @@ int mark_finished_hash(flow *f, uint8_t *hs){
  */
 int compute_master_secret(flow *f){
 #ifdef DEBUG_HS
-	printf("Computing master secret (%x:%d -> %x:%d)...\n", f->src_ip.s_addr, f->src_port, f->dst_ip.s_addr, f->dst_port);
+    printf("Computing master secret (%x:%d -> %x:%d)...\n", f->src_ip.s_addr, f->src_port, f->dst_ip.s_addr, f->dst_port);
 #endif
 
-	DH *dh_srvr = NULL;
-	DH *dh_clnt = NULL;
-	BN_CTX *ctx = NULL;
-	BIGNUM *pub_key = NULL, *priv_key = NULL, *order = NULL;
+    DH *dh_srvr = NULL;
+    DH *dh_clnt = NULL;
+    BN_CTX *ctx = NULL;
+    BIGNUM *pub_key = NULL, *priv_key = NULL, *order = NULL;
 
-	EC_KEY *clnt_ecdh = NULL;
-	EC_POINT *e_pub_key = NULL;
+    EC_KEY *clnt_ecdh = NULL;
+    EC_POINT *e_pub_key = NULL;
 
-	int ok =1;
+    int ok =1;
 
-	uint8_t *pre_master_secret = ecalloc(1, PRE_MASTER_MAX_LEN);
+    uint8_t *pre_master_secret = ecalloc(1, PRE_MASTER_MAX_LEN);
 
-	int32_t pre_master_len;
-	uint32_t l;
-	int32_t bytes;
+    int32_t pre_master_len;
+    uint32_t l;
+    int32_t bytes;
 
-	uint8_t *buf = NULL;
+    uint8_t *buf = NULL;
 
-	if(f->keyex_alg == 1){
-		BN_MONT_CTX *mont = NULL;
+    if(f->keyex_alg == 1){
+        BN_MONT_CTX *mont = NULL;
 
-		ctx = BN_CTX_new();
+        ctx = BN_CTX_new();
 
-		dh_srvr = f->dh;
+        dh_srvr = f->dh;
 
-                if(dh_srvr == NULL){
-                    goto err;
-                }
+        if(dh_srvr == NULL){
+            goto err;
+        }
 
-		dh_clnt = DHparams_dup(dh_srvr);
+        dh_clnt = DHparams_dup(dh_srvr);
 
 #if OPENSSL_VERSION_NUMBER >= 0x1010000eL
-                const BIGNUM *p, *q, *g;
-                DH_get0_pqg(dh_clnt, &p, &q, &g);
-		l = DH_get_length(dh_clnt) ? DH_get_length(dh_clnt) : BN_num_bits(p) - 1;
+        const BIGNUM *p, *q, *g;
+        DH_get0_pqg(dh_clnt, &p, &q, &g);
+        l = DH_get_length(dh_clnt) ? DH_get_length(dh_clnt) : BN_num_bits(p) - 1;
 #else
-		l = dh_clnt->length ? dh_clnt->length : BN_num_bits(dh_clnt->p) - 1;
+        l = dh_clnt->length ? dh_clnt->length : BN_num_bits(dh_clnt->p) - 1;
 #endif
-		bytes = (l+7) / 8;
+        bytes = (l+7) / 8;
 
-		buf = (uint8_t *)OPENSSL_malloc(bytes);
-		if (buf == NULL){
-			BNerr(BN_F_BNRAND, ERR_R_MALLOC_FAILURE);
-			goto err;
-		}
+        buf = (uint8_t *)OPENSSL_malloc(bytes);
+        if (buf == NULL){
+            BNerr(BN_F_BNRAND, ERR_R_MALLOC_FAILURE);
+            goto err;
+        }
 
-		pub_key = BN_new();
-		priv_key = BN_new();
+        pub_key = BN_new();
+        priv_key = BN_new();
 #ifdef DEBUG
-		printf("key =");
-		for(int i=0; i< 16; i++)
-			printf(" %02x", f->key[i]);
-		printf("\n");
+        printf("key =");
+        for(int i=0; i< 16; i++)
+            printf(" %02x", f->key[i]);
+        printf("\n");
 #endif
 
-		PRF(f, f->key, 16,
-			(uint8_t *) SLITHEEN_KEYGEN_CONST, SLITHEEN_KEYGEN_CONST_SIZE,
-			NULL, 0, NULL, 0, NULL, 0,
-			buf, bytes);
+        PRF(f, f->key, 16,
+                (uint8_t *) SLITHEEN_KEYGEN_CONST, SLITHEEN_KEYGEN_CONST_SIZE,
+                NULL, 0, NULL, 0, NULL, 0,
+                buf, bytes);
 
 #ifdef DEBUG_HS
-		printf("Generated the client private key [len: %d]: ", bytes);
-		for(int i=0; i< bytes; i++){
-			printf(" %02x ", buf[i]);
-		}
-		printf("\n");
+        printf("Generated the client private key [len: %d]: ", bytes);
+        for(int i=0; i< bytes; i++){
+            printf(" %02x ", buf[i]);
+        }
+        printf("\n");
 #endif
 
-		if (!BN_bin2bn(buf, bytes, priv_key))
-			goto err;
+        if (!BN_bin2bn(buf, bytes, priv_key))
+            goto err;
 
-		{
-			BIGNUM *prk;
+        {
+            BIGNUM *prk;
 
-			prk = priv_key;
+            prk = priv_key;
 
 #if OPENSSL_VERSION_NUMBER >= 0x1010000eL
-			if (!BN_mod_exp_mont(pub_key, g, prk, p, ctx, mont)){
-				goto err;
-			}
-#else
-			if (!dh_clnt->meth->bn_mod_exp(dh_clnt, pub_key, dh_clnt->g, prk, dh_clnt->p, ctx, mont)){
-				goto err;
-			}
-#endif
-		}
-
-#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
-                if(!DH_set0_key(dh_clnt, pub_key, priv_key)){
-                    goto err;
-                }
-                const BIGNUM *srvr_pub, *srvr_priv;
-                DH_get0_key(dh_srvr, &srvr_pub, &srvr_priv);
-		pre_master_len = DH_compute_key(pre_master_secret, srvr_pub, dh_clnt);
-#else
-		dh_clnt->pub_key = pub_key;
-		dh_clnt->priv_key = priv_key;
-		pre_master_len = DH_compute_key(pre_master_secret, dh_srvr->pub_key, dh_clnt);
-#endif
-
-		
-	} else if(f->keyex_alg == 2){
-            const EC_GROUP *srvr_group = NULL;
-            const EC_POINT *srvr_ecpoint = NULL;
-            EC_KEY *tkey;
-
-#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
-            if(f->srvr_key != NULL){
-
-                EVP_PKEY *ckey, *skey;
-		EVP_PKEY_CTX *pctx;
-                skey = f->srvr_key;
-
-                /* Generate client key from tag */
-                X25519_KEY *xkey = OPENSSL_zalloc(sizeof(*xkey));
-                xkey->privkey = OPENSSL_secure_malloc(X25519_KEYLEN);
-
-		if(xkey->privkey == NULL){
-			goto err;
-		}
-
-		PRF(f, f->key, 16, (uint8_t *) SLITHEEN_KEYGEN_CONST, SLITHEEN_KEYGEN_CONST_SIZE,
-				NULL, 0, NULL, 0, NULL, 0, xkey->privkey, X25519_KEYLEN);
-
-#ifdef DEBUG_HS
-		printf("Generated the X25519 client private key [len: %d]: ", X25519_KEYLEN);
-		for(int i=0; i< X25519_KEYLEN; i++){
-			printf("%02x ", xkey->privkey[i]);
-		}
-		printf("\n");
-#endif
-                //X25519_public_from_private(xkey->pubkey, xkey->privkey);
-                ckey = EVP_PKEY_new();
-                EVP_PKEY_assign(ckey, NID_X25519, xkey);
-
-		pctx = EVP_PKEY_CTX_new(ckey, NULL);
-
-		if (EVP_PKEY_derive_init(pctx) <= 0
-		    || EVP_PKEY_derive_set_peer(pctx, skey) <= 0
-		    || EVP_PKEY_derive(pctx, NULL, (uint64_t *) &pre_master_len) <= 0) {
-		    goto err;
-		}
-
-		if (EVP_PKEY_derive(pctx, pre_master_secret, (uint64_t *) &pre_master_len) <= 0)
-		    goto err;
-
-                EVP_PKEY_CTX_free(pctx);
-                EVP_PKEY_free(ckey);
-
-            } else { /* TODO: need to generate client key in a special way too :S */
-#endif
-		tkey = f->ecdh;
-		if(tkey == NULL){
-                    goto err;
-		}
-
-		srvr_group = EC_KEY_get0_group(tkey);
-		srvr_ecpoint = EC_KEY_get0_public_key(tkey);
-
-		if((srvr_group == NULL) || (srvr_ecpoint == NULL)) {
-                    goto err;
-		}
-
-		if((clnt_ecdh = EC_KEY_new()) == NULL) {
-			goto err;
-		}
-
-		if(!EC_KEY_set_group(clnt_ecdh, srvr_group)) {
-			goto err;
-		}
-
-		/* Now generate key from tag */
-		
-		if((order = BN_new()) == NULL){
-			goto err;
-		}
-		if((ctx = BN_CTX_new()) == NULL){
-			goto err;
-		}
-
-		if((priv_key = BN_new()) == NULL){
-			goto err;
-		}
-
-		if(!EC_GROUP_get_order(srvr_group, order, ctx)){
-			goto err;
-		}
-
-		l = BN_num_bits(order);
-		bytes = (l+7)/8;
-
-		buf = (unsigned char *)OPENSSL_malloc(bytes);
-		if(buf == NULL){
-			goto err;
-		}
-
-		PRF(f, f->key, 16, (uint8_t *) SLITHEEN_KEYGEN_CONST, SLITHEEN_KEYGEN_CONST_SIZE,
-				NULL, 0, NULL, 0, NULL, 0, buf, bytes);
-
-#ifdef DEBUG_HS
-		printf("Generated the client private key [len: %d]: ", bytes);
-		for(int i=0; i< bytes; i++){
-			printf("%02x ", buf[i]);
-		}
-		printf("\n");
-#endif
-		
-		if(!BN_bin2bn(buf, bytes, priv_key)){
-			goto err;
-		}
-
-		if((e_pub_key = EC_POINT_new(srvr_group)) == NULL){
-			goto err;
-		}
-
-		if(!EC_POINT_mul(EC_KEY_get0_group(clnt_ecdh), e_pub_key, priv_key, NULL, NULL, ctx)){
-			goto err;
-		}
-
-		EC_KEY_set_private_key(clnt_ecdh, priv_key);
-		EC_KEY_set_public_key(clnt_ecdh, e_pub_key);
-
-
-		/*Compute the master secret */
-		int32_t field_size = EC_GROUP_get_degree(srvr_group);
-		if(field_size <= 0){
-			goto err;
-		}
-		pre_master_len = ECDH_compute_key(pre_master_secret, (field_size + 7) / 8,
-					srvr_ecpoint, clnt_ecdh, NULL);
-		if(pre_master_len <= 0) {
-			goto err;
-		}
-#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+            if (!BN_mod_exp_mont(pub_key, g, prk, p, ctx, mont)){
+                goto err;
             }
-#endif
-	}
-
-	/*Generate master secret */
-
-        if(f->extended_master_secret){
-
-            //compute session hash
-            EVP_MD_CTX *md_ctx = NULL;
-            uint8_t hash[EVP_MAX_MD_SIZE*2];
-            uint32_t hash_len;
-
-#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
-            md_ctx = EVP_MD_CTX_new();
 #else
-            md_ctx = ecalloc(1, sizeof(EVP_MD_CTX));
-            EVP_MD_CTX_init(md_ctx);
-#endif
-            EVP_MD_CTX_copy_ex(md_ctx, f->hs_md_ctx);
-            EVP_DigestFinal_ex(md_ctx, hash, &hash_len);
-
-#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
-            EVP_MD_CTX_free(md_ctx);
-#else
-            EVP_MD_CTX_cleanup(md_ctx);
-            free(md_ctx);
-#endif
-
-            PRF(f, pre_master_secret, pre_master_len, (uint8_t *) TLS_MD_EXTENDED_MASTER_SECRET_CONST, TLS_MD_EXTENDED_MASTER_SECRET_CONST_SIZE, hash, hash_len, NULL, 0, NULL, 0, f->master_secret, SSL3_MASTER_SECRET_SIZE);
-#ifdef DEBUG_HS
-	fprintf(stdout, "Premaster Secret:\n");
-	BIO_dump_fp(stdout, (char *)pre_master_secret, pre_master_len);
-        fprintf(stdout, "Handshake hash:\n");
-	BIO_dump_fp(stdout, (char *)hash, hash_len);
-	fprintf(stdout, "Master Secret:\n");
-	BIO_dump_fp(stdout, (char *)f->master_secret, SSL3_MASTER_SECRET_SIZE);
-#endif
-
-        } else {
-	
-            PRF(f, pre_master_secret, pre_master_len, (uint8_t *) TLS_MD_MASTER_SECRET_CONST, TLS_MD_MASTER_SECRET_CONST_SIZE, f->client_random, SSL3_RANDOM_SIZE, f->server_random, SSL3_RANDOM_SIZE, NULL, 0, f->master_secret, SSL3_MASTER_SECRET_SIZE);
-
-#ifdef DEBUG_HS
-	fprintf(stdout, "Premaster Secret:\n");
-	BIO_dump_fp(stdout, (char *)pre_master_secret, pre_master_len);
-	fprintf(stdout, "Client Random:\n");
-	BIO_dump_fp(stdout, (char *)f->client_random, SSL3_RANDOM_SIZE);
-	fprintf(stdout, "Server Random:\n");
-	BIO_dump_fp(stdout, (char *)f->server_random, SSL3_RANDOM_SIZE);
-	fprintf(stdout, "Master Secret:\n");
-	BIO_dump_fp(stdout, (char *)f->master_secret, SSL3_MASTER_SECRET_SIZE);
+            if (!dh_clnt->meth->bn_mod_exp(dh_clnt, pub_key, dh_clnt->g, prk, dh_clnt->p, ctx, mont)){
+                goto err;
+            }
 #endif
         }
 
-	if(f->current_session != NULL){
-		memcpy(f->current_session->master_secret, f->master_secret, SSL3_MASTER_SECRET_SIZE);
-	}
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+        if(!DH_set0_key(dh_clnt, pub_key, priv_key)){
+            goto err;
+        }
+        const BIGNUM *srvr_pub, *srvr_priv;
+        DH_get0_key(dh_srvr, &srvr_pub, &srvr_priv);
+        pre_master_len = DH_compute_key(pre_master_secret, srvr_pub, dh_clnt);
+#else
+        dh_clnt->pub_key = pub_key;
+        dh_clnt->priv_key = priv_key;
+        pre_master_len = DH_compute_key(pre_master_secret, dh_srvr->pub_key, dh_clnt);
+#endif
 
 
-	//remove pre_master_secret from memory
-	memset(pre_master_secret, 0, PRE_MASTER_MAX_LEN);
-	ok = 0;
+    } else if(f->keyex_alg == 2){
+        const EC_GROUP *srvr_group = NULL;
+        const EC_POINT *srvr_ecpoint = NULL;
+        EC_KEY *tkey;
+
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+        if(f->srvr_key != NULL){
+
+            EVP_PKEY *ckey, *skey;
+            EVP_PKEY_CTX *pctx;
+            skey = f->srvr_key;
+
+            /* Generate client key from tag */
+            X25519_KEY *xkey = OPENSSL_zalloc(sizeof(*xkey));
+            xkey->privkey = OPENSSL_secure_malloc(X25519_KEYLEN);
+
+            if(xkey->privkey == NULL){
+                goto err;
+            }
+
+            PRF(f, f->key, 16, (uint8_t *) SLITHEEN_KEYGEN_CONST, SLITHEEN_KEYGEN_CONST_SIZE,
+                    NULL, 0, NULL, 0, NULL, 0, xkey->privkey, X25519_KEYLEN);
+
+#ifdef DEBUG_HS
+            printf("Generated the X25519 client private key [len: %d]: ", X25519_KEYLEN);
+            for(int i=0; i< X25519_KEYLEN; i++){
+                printf("%02x ", xkey->privkey[i]);
+            }
+            printf("\n");
+#endif
+            //X25519_public_from_private(xkey->pubkey, xkey->privkey);
+            ckey = EVP_PKEY_new();
+            EVP_PKEY_assign(ckey, NID_X25519, xkey);
+
+            pctx = EVP_PKEY_CTX_new(ckey, NULL);
+
+            if (EVP_PKEY_derive_init(pctx) <= 0
+                    || EVP_PKEY_derive_set_peer(pctx, skey) <= 0
+                    || EVP_PKEY_derive(pctx, NULL, (uint64_t *) &pre_master_len) <= 0) {
+                goto err;
+            }
+
+            if (EVP_PKEY_derive(pctx, pre_master_secret, (uint64_t *) &pre_master_len) <= 0)
+                goto err;
+
+            EVP_PKEY_CTX_free(pctx);
+            EVP_PKEY_free(ckey);
+
+        } else { /* TODO: need to generate client key in a special way too :S */
+#endif
+            tkey = f->ecdh;
+            if(tkey == NULL){
+                goto err;
+            }
+
+            srvr_group = EC_KEY_get0_group(tkey);
+            srvr_ecpoint = EC_KEY_get0_public_key(tkey);
+
+            if((srvr_group == NULL) || (srvr_ecpoint == NULL)) {
+                goto err;
+            }
+
+            if((clnt_ecdh = EC_KEY_new()) == NULL) {
+                goto err;
+            }
+
+            if(!EC_KEY_set_group(clnt_ecdh, srvr_group)) {
+                goto err;
+            }
+
+            /* Now generate key from tag */
+
+            if((order = BN_new()) == NULL){
+                goto err;
+            }
+            if((ctx = BN_CTX_new()) == NULL){
+                goto err;
+            }
+
+            if((priv_key = BN_new()) == NULL){
+                goto err;
+            }
+
+            if(!EC_GROUP_get_order(srvr_group, order, ctx)){
+                goto err;
+            }
+
+            l = BN_num_bits(order);
+            bytes = (l+7)/8;
+
+            buf = (unsigned char *)OPENSSL_malloc(bytes);
+            if(buf == NULL){
+                goto err;
+            }
+
+            PRF(f, f->key, 16, (uint8_t *) SLITHEEN_KEYGEN_CONST, SLITHEEN_KEYGEN_CONST_SIZE,
+                    NULL, 0, NULL, 0, NULL, 0, buf, bytes);
+
+#ifdef DEBUG_HS
+            printf("Generated the client private key [len: %d]: ", bytes);
+            for(int i=0; i< bytes; i++){
+                printf("%02x ", buf[i]);
+            }
+            printf("\n");
+#endif
+
+            if(!BN_bin2bn(buf, bytes, priv_key)){
+                goto err;
+            }
+
+            if((e_pub_key = EC_POINT_new(srvr_group)) == NULL){
+                goto err;
+            }
+
+            if(!EC_POINT_mul(EC_KEY_get0_group(clnt_ecdh), e_pub_key, priv_key, NULL, NULL, ctx)){
+                goto err;
+            }
+
+            EC_KEY_set_private_key(clnt_ecdh, priv_key);
+            EC_KEY_set_public_key(clnt_ecdh, e_pub_key);
+
+
+            /*Compute the master secret */
+            int32_t field_size = EC_GROUP_get_degree(srvr_group);
+            if(field_size <= 0){
+                goto err;
+            }
+            pre_master_len = ECDH_compute_key(pre_master_secret, (field_size + 7) / 8,
+                    srvr_ecpoint, clnt_ecdh, NULL);
+            if(pre_master_len <= 0) {
+                goto err;
+            }
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+        }
+#endif
+    }
+
+    /*Generate master secret */
+
+    if(f->extended_master_secret){
+
+        //compute session hash
+        EVP_MD_CTX *md_ctx = NULL;
+        uint8_t hash[EVP_MAX_MD_SIZE*2];
+        uint32_t hash_len;
+
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+        md_ctx = EVP_MD_CTX_new();
+#else
+        md_ctx = ecalloc(1, sizeof(EVP_MD_CTX));
+        EVP_MD_CTX_init(md_ctx);
+#endif
+        EVP_MD_CTX_copy_ex(md_ctx, f->hs_md_ctx);
+        EVP_DigestFinal_ex(md_ctx, hash, &hash_len);
+
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+        EVP_MD_CTX_free(md_ctx);
+#else
+        EVP_MD_CTX_cleanup(md_ctx);
+        free(md_ctx);
+#endif
+
+        PRF(f, pre_master_secret, pre_master_len, (uint8_t *) TLS_MD_EXTENDED_MASTER_SECRET_CONST, TLS_MD_EXTENDED_MASTER_SECRET_CONST_SIZE, hash, hash_len, NULL, 0, NULL, 0, f->master_secret, SSL3_MASTER_SECRET_SIZE);
+#ifdef DEBUG_HS
+        fprintf(stdout, "Premaster Secret:\n");
+        BIO_dump_fp(stdout, (char *)pre_master_secret, pre_master_len);
+        fprintf(stdout, "Handshake hash:\n");
+        BIO_dump_fp(stdout, (char *)hash, hash_len);
+        fprintf(stdout, "Master Secret:\n");
+        BIO_dump_fp(stdout, (char *)f->master_secret, SSL3_MASTER_SECRET_SIZE);
+#endif
+
+    } else {
+
+        PRF(f, pre_master_secret, pre_master_len, (uint8_t *) TLS_MD_MASTER_SECRET_CONST, TLS_MD_MASTER_SECRET_CONST_SIZE, f->client_random, SSL3_RANDOM_SIZE, f->server_random, SSL3_RANDOM_SIZE, NULL, 0, f->master_secret, SSL3_MASTER_SECRET_SIZE);
+
+#ifdef DEBUG_HS
+        fprintf(stdout, "Premaster Secret:\n");
+        BIO_dump_fp(stdout, (char *)pre_master_secret, pre_master_len);
+        fprintf(stdout, "Client Random:\n");
+        BIO_dump_fp(stdout, (char *)f->client_random, SSL3_RANDOM_SIZE);
+        fprintf(stdout, "Server Random:\n");
+        BIO_dump_fp(stdout, (char *)f->server_random, SSL3_RANDOM_SIZE);
+        fprintf(stdout, "Master Secret:\n");
+        BIO_dump_fp(stdout, (char *)f->master_secret, SSL3_MASTER_SECRET_SIZE);
+#endif
+    }
+
+    if(f->current_session != NULL){
+        memcpy(f->current_session->master_secret, f->master_secret, SSL3_MASTER_SECRET_SIZE);
+    }
+
+
+    //remove pre_master_secret from memory
+    memset(pre_master_secret, 0, PRE_MASTER_MAX_LEN);
+    ok = 0;
 
 err:
-	if((pub_key != NULL) && (dh_srvr == NULL)){
-		BN_free(pub_key);
-	}
-	if((priv_key != NULL) && ((dh_clnt == NULL) || (EC_KEY_get0_private_key(clnt_ecdh) == NULL))){
-		BN_free(priv_key);
-	}
+    if((pub_key != NULL) && (dh_srvr == NULL)){
+        BN_free(pub_key);
+    }
+    if((priv_key != NULL) && ((dh_clnt == NULL) || (EC_KEY_get0_private_key(clnt_ecdh) == NULL))){
+        BN_free(priv_key);
+    }
 
-	if(ctx != NULL){
-            BN_CTX_free(ctx);
-	}
+    if(ctx != NULL){
+        BN_CTX_free(ctx);
+    }
 
-	OPENSSL_free(buf);
-	free(pre_master_secret);
-	if(dh_srvr != NULL){
-		DH_free(dh_srvr);
-                f->dh = NULL;
-	}
-	if(dh_clnt != NULL) {
-		DH_free(dh_clnt);
-	}
-	
-	if(order){
-		BN_free(order);
-	}
-	if(clnt_ecdh != NULL){
-		EC_KEY_free(clnt_ecdh);
-	}
-	if(e_pub_key != NULL){
-		EC_POINT_free(e_pub_key);
-	}
+    OPENSSL_free(buf);
+    free(pre_master_secret);
+    if(dh_srvr != NULL){
+        DH_free(dh_srvr);
+        f->dh = NULL;
+    }
+    if(dh_clnt != NULL) {
+        DH_free(dh_clnt);
+    }
+
+    if(order){
+        BN_free(order);
+    }
+    if(clnt_ecdh != NULL){
+        EC_KEY_free(clnt_ecdh);
+    }
+    if(e_pub_key != NULL){
+        EC_POINT_free(e_pub_key);
+    }
 
 
-	return ok;
+    return ok;
 }
 
 /** Saves the random none from the server hello message
@@ -966,72 +966,72 @@ err:
  */
 int extract_server_random(flow *f, uint8_t *hs){
 
-	uint8_t *p;
+    uint8_t *p;
 
-	p = hs + HANDSHAKE_HEADER_LEN;
+    p = hs + HANDSHAKE_HEADER_LEN;
 
-	p+=2; //skip version
+    p+=2; //skip version
 
-	memcpy(f->server_random, p, SSL3_RANDOM_SIZE);
-	p += SSL3_RANDOM_SIZE;
+    memcpy(f->server_random, p, SSL3_RANDOM_SIZE);
+    p += SSL3_RANDOM_SIZE;
 
-	//skip session id
-	uint8_t id_len = (uint8_t) p[0];
-	p ++;
-	p += id_len;
+    //skip session id
+    uint8_t id_len = (uint8_t) p[0];
+    p ++;
+    p += id_len;
 
-	//now extract ciphersuite
+    //now extract ciphersuite
 #ifdef DEBUG_HS
-	printf("Checking cipher\n");
+    printf("Checking cipher\n");
 #endif
 
-	if(((p[0] <<8) + p[1]) == 0x9E){
+    if(((p[0] <<8) + p[1]) == 0x9E){
 
 #ifdef DEBUG_HS
-		printf("USING DHE-RSA-AES128-GCM-SHA256\n");
-		fflush(stdout);
+        printf("USING DHE-RSA-AES128-GCM-SHA256\n");
+        fflush(stdout);
 #endif
-		f->keyex_alg = 1;
-		f->cipher = EVP_aes_128_gcm();
-		f->message_digest = EVP_sha256();
+        f->keyex_alg = 1;
+        f->cipher = EVP_aes_128_gcm();
+        f->message_digest = EVP_sha256();
 
-	} else if(((p[0] <<8) + p[1]) == 0x9F){
+    } else if(((p[0] <<8) + p[1]) == 0x9F){
 #ifdef DEBUG_HS
-		printf("USING DHE-RSA-AES256-GCM-SHA384\n");
-		fflush(stdout);
+        printf("USING DHE-RSA-AES256-GCM-SHA384\n");
+        fflush(stdout);
 #endif
-		f->keyex_alg = 1;
-		f->cipher = EVP_aes_256_gcm();
-		f->message_digest = EVP_sha384();
+        f->keyex_alg = 1;
+        f->cipher = EVP_aes_256_gcm();
+        f->message_digest = EVP_sha384();
 
-	} else if(((p[0] <<8) + p[1]) == 0xC02F){
+    } else if(((p[0] <<8) + p[1]) == 0xC02F){
 #ifdef DEBUG_HS
-		printf("USING ECDHE-RSA-AES128-GCM-SHA256\n");
-		fflush(stdout);
+        printf("USING ECDHE-RSA-AES128-GCM-SHA256\n");
+        fflush(stdout);
 #endif
-		f->keyex_alg = 2;
-		f->cipher = EVP_aes_128_gcm();
-		f->message_digest = EVP_sha256();
+        f->keyex_alg = 2;
+        f->cipher = EVP_aes_128_gcm();
+        f->message_digest = EVP_sha256();
 
-	} else if(((p[0] <<8) + p[1]) == 0xC030){
+    } else if(((p[0] <<8) + p[1]) == 0xC030){
 #ifdef DEBUG_HS
-		printf("USING ECDHE-RSA-AES256-GCM-SHA384\n");
-		fflush(stdout);
+        printf("USING ECDHE-RSA-AES256-GCM-SHA384\n");
+        fflush(stdout);
 #endif
-		f->keyex_alg = 2;
-		f->cipher = EVP_aes_256_gcm();
-		f->message_digest = EVP_sha384();
+        f->keyex_alg = 2;
+        f->cipher = EVP_aes_256_gcm();
+        f->message_digest = EVP_sha384();
 
-	} else {
+    } else {
 #ifdef DEBUG_HS
-		printf("%x %x = %x\n", p[0], p[1], ((p[0] <<8) + p[1]));
-		printf("Error: unsupported cipher\n");
-		fflush(stdout);
+        printf("%x %x = %x\n", p[0], p[1], ((p[0] <<8) + p[1]));
+        printf("Error: unsupported cipher\n");
+        fflush(stdout);
 #endif
-		return 1;
-	}
+        return 1;
+    }
 
-	return 0;
+    return 0;
 
 }
 
@@ -1050,119 +1050,119 @@ int extract_server_random(flow *f, uint8_t *hs){
  *  	0 on success, 1 on failure
  */
 int PRF(flow *f, uint8_t *secret, int32_t secret_len,
-		uint8_t *seed1, int32_t seed1_len,
-		uint8_t *seed2, int32_t seed2_len,
-		uint8_t *seed3, int32_t seed3_len,
-		uint8_t *seed4, int32_t seed4_len,
-		uint8_t *output, int32_t output_len){
+        uint8_t *seed1, int32_t seed1_len,
+        uint8_t *seed2, int32_t seed2_len,
+        uint8_t *seed3, int32_t seed3_len,
+        uint8_t *seed4, int32_t seed4_len,
+        uint8_t *output, int32_t output_len){
 
-        int ret = 1;
+    int ret = 1;
 
-	EVP_MD_CTX *ctx = NULL, *ctx_tmp = NULL, *ctx_init = NULL;
-	EVP_PKEY *mac_key;
-	const EVP_MD *md;
-	if(f == NULL){
-		md = EVP_sha256();
-	} else {
-		md = f->message_digest;
-	}
+    EVP_MD_CTX *ctx = NULL, *ctx_tmp = NULL, *ctx_init = NULL;
+    EVP_PKEY *mac_key;
+    const EVP_MD *md;
+    if(f == NULL){
+        md = EVP_sha256();
+    } else {
+        md = f->message_digest;
+    }
 
 #if OPENSSL_VERSION_NUMBER >= 0x1010000eL
-	ctx = EVP_MD_CTX_new();
-        ctx_tmp = EVP_MD_CTX_new();
-        ctx_init = EVP_MD_CTX_new();
+    ctx = EVP_MD_CTX_new();
+    ctx_tmp = EVP_MD_CTX_new();
+    ctx_init = EVP_MD_CTX_new();
 #else
-        ctx = ecalloc(1, sizeof(EVP_MD_CTX));
-        EVP_MD_CTX_init(ctx);
-        ctx_tmp = ecalloc(1, sizeof(EVP_MD_CTX));
-        EVP_MD_CTX_init(ctx_tmp);
-        ctx_init = ecalloc(1, sizeof(EVP_MD_CTX));
-        EVP_MD_CTX_init(ctx_init);
+    ctx = ecalloc(1, sizeof(EVP_MD_CTX));
+    EVP_MD_CTX_init(ctx);
+    ctx_tmp = ecalloc(1, sizeof(EVP_MD_CTX));
+    EVP_MD_CTX_init(ctx_tmp);
+    ctx_init = ecalloc(1, sizeof(EVP_MD_CTX));
+    EVP_MD_CTX_init(ctx_init);
 #endif
-        if (ctx == NULL || ctx_tmp == NULL || ctx_init == NULL)
-            goto err;
+    if (ctx == NULL || ctx_tmp == NULL || ctx_init == NULL)
+        goto err;
 
-	uint8_t A[EVP_MAX_MD_SIZE];
-	size_t len, A_len;
-	int chunk = EVP_MD_size(md);
-	int remaining = output_len;
+    uint8_t A[EVP_MAX_MD_SIZE];
+    size_t len, A_len;
+    int chunk = EVP_MD_size(md);
+    int remaining = output_len;
 
-	uint8_t *out = output;
+    uint8_t *out = output;
 
-	EVP_MD_CTX_set_flags(ctx_init, EVP_MD_CTX_FLAG_NON_FIPS_ALLOW);
+    EVP_MD_CTX_set_flags(ctx_init, EVP_MD_CTX_FLAG_NON_FIPS_ALLOW);
 
-	mac_key = EVP_PKEY_new_mac_key(EVP_PKEY_HMAC, NULL, secret, secret_len);
+    mac_key = EVP_PKEY_new_mac_key(EVP_PKEY_HMAC, NULL, secret, secret_len);
 
-	/* Calculate first A value */
-	EVP_DigestSignInit(ctx_init, NULL, md, NULL, mac_key);
-	EVP_MD_CTX_copy_ex(ctx, ctx_init);
-	if(seed1 != NULL && seed1_len > 0){
-		EVP_DigestSignUpdate(ctx, seed1, seed1_len);
-	}
-	if(seed2 != NULL && seed2_len > 0){
-		EVP_DigestSignUpdate(ctx, seed2, seed2_len);
-	}
-	if(seed3 != NULL && seed3_len > 0){
-		EVP_DigestSignUpdate(ctx, seed3, seed3_len);
-	}
-	if(seed4 != NULL && seed4_len > 0){
-		EVP_DigestSignUpdate(ctx, seed4, seed4_len);
-	}
-	EVP_DigestSignFinal(ctx, A, &A_len);
+    /* Calculate first A value */
+    EVP_DigestSignInit(ctx_init, NULL, md, NULL, mac_key);
+    EVP_MD_CTX_copy_ex(ctx, ctx_init);
+    if(seed1 != NULL && seed1_len > 0){
+        EVP_DigestSignUpdate(ctx, seed1, seed1_len);
+    }
+    if(seed2 != NULL && seed2_len > 0){
+        EVP_DigestSignUpdate(ctx, seed2, seed2_len);
+    }
+    if(seed3 != NULL && seed3_len > 0){
+        EVP_DigestSignUpdate(ctx, seed3, seed3_len);
+    }
+    if(seed4 != NULL && seed4_len > 0){
+        EVP_DigestSignUpdate(ctx, seed4, seed4_len);
+    }
+    EVP_DigestSignFinal(ctx, A, &A_len);
 
-	//iterate until desired length is achieved
-	while(remaining > 0){
-		/* Now compute SHA384(secret, A+seed) */
-		EVP_MD_CTX_copy_ex(ctx, ctx_init);
-		EVP_DigestSignUpdate(ctx, A, A_len);
-		EVP_MD_CTX_copy_ex(ctx_tmp, ctx);
-		if(seed1 != NULL && seed1_len > 0){
-			EVP_DigestSignUpdate(ctx, seed1, seed1_len);
-		}
-		if(seed2 != NULL && seed2_len > 0){
-			EVP_DigestSignUpdate(ctx, seed2, seed2_len);
-		}
-		if(seed3 != NULL && seed3_len > 0){
-			EVP_DigestSignUpdate(ctx, seed3, seed3_len);
-		}
-		if(seed4 != NULL && seed4_len > 0){
-			EVP_DigestSignUpdate(ctx, seed4, seed4_len);
-		}
-		
-		if(remaining > chunk){
-			EVP_DigestSignFinal(ctx, out, &len);
-			out += len;
-			remaining -= len;
+    //iterate until desired length is achieved
+    while(remaining > 0){
+        /* Now compute SHA384(secret, A+seed) */
+        EVP_MD_CTX_copy_ex(ctx, ctx_init);
+        EVP_DigestSignUpdate(ctx, A, A_len);
+        EVP_MD_CTX_copy_ex(ctx_tmp, ctx);
+        if(seed1 != NULL && seed1_len > 0){
+            EVP_DigestSignUpdate(ctx, seed1, seed1_len);
+        }
+        if(seed2 != NULL && seed2_len > 0){
+            EVP_DigestSignUpdate(ctx, seed2, seed2_len);
+        }
+        if(seed3 != NULL && seed3_len > 0){
+            EVP_DigestSignUpdate(ctx, seed3, seed3_len);
+        }
+        if(seed4 != NULL && seed4_len > 0){
+            EVP_DigestSignUpdate(ctx, seed4, seed4_len);
+        }
 
-			/* Next A value */
-			EVP_DigestSignFinal(ctx_tmp, A, &A_len);
-		} else {
-			EVP_DigestSignFinal(ctx, A, &A_len);
-			memcpy(out, A, remaining);
-			remaining -= remaining;
-		}
-	}
-        ret = 0;
+        if(remaining > chunk){
+            EVP_DigestSignFinal(ctx, out, &len);
+            out += len;
+            remaining -= len;
+
+            /* Next A value */
+            EVP_DigestSignFinal(ctx_tmp, A, &A_len);
+        } else {
+            EVP_DigestSignFinal(ctx, A, &A_len);
+            memcpy(out, A, remaining);
+            remaining -= remaining;
+        }
+    }
+    ret = 0;
 
 err:
-	EVP_PKEY_free(mac_key);
+    EVP_PKEY_free(mac_key);
 
-        //Check to see if version is greater than OpenSSL 1.1.0e
+    //Check to see if version is greater than OpenSSL 1.1.0e
 #if OPENSSL_VERSION_NUMBER >= 0x1010000eL
-        EVP_MD_CTX_free(ctx);
-        EVP_MD_CTX_free(ctx_tmp);
-        EVP_MD_CTX_free(ctx_init);
+    EVP_MD_CTX_free(ctx);
+    EVP_MD_CTX_free(ctx_tmp);
+    EVP_MD_CTX_free(ctx_init);
 #else
-        EVP_MD_CTX_cleanup(ctx);
-        EVP_MD_CTX_cleanup(ctx_tmp);
-        EVP_MD_CTX_cleanup(ctx_init);
-        free(ctx);
-        free(ctx_tmp);
-        free(ctx_init);
+    EVP_MD_CTX_cleanup(ctx);
+    EVP_MD_CTX_cleanup(ctx_tmp);
+    EVP_MD_CTX_cleanup(ctx_init);
+    free(ctx);
+    free(ctx_tmp);
+    free(ctx_init);
 #endif
 
-	OPENSSL_cleanse(A, sizeof(A));
-	return ret;
+    OPENSSL_cleanse(A, sizeof(A));
+    return ret;
 }
 
 /** After receiving change cipher spec, calculate keys from master secret
@@ -1175,94 +1175,94 @@ err:
  */
 int init_ciphers(flow *f){
 
-	EVP_CIPHER_CTX *r_ctx;
-	EVP_CIPHER_CTX *w_ctx;
-	EVP_CIPHER_CTX *w_ctx_srvr;
-	EVP_CIPHER_CTX *r_ctx_srvr;
+    EVP_CIPHER_CTX *r_ctx;
+    EVP_CIPHER_CTX *w_ctx;
+    EVP_CIPHER_CTX *w_ctx_srvr;
+    EVP_CIPHER_CTX *r_ctx_srvr;
 
-        GCM128_CONTEXT *o_gcm;
+    GCM128_CONTEXT *o_gcm;
 
-	const EVP_CIPHER *c = f->cipher;
+    const EVP_CIPHER *c = f->cipher;
 
-	if(c == NULL){
-		/*This *shouldn't* happen, but might if a serverHello msg isn't received
-		 * or if a session is resumed in a strange way */
-		return 1;
-	}
+    if(c == NULL){
+        /*This *shouldn't* happen, but might if a serverHello msg isn't received
+         * or if a session is resumed in a strange way */
+        return 1;
+    }
 
-	/* Generate Keys */
-	uint8_t *write_key, *write_iv;
-	uint8_t *read_key, *read_iv;
-	int32_t mac_len, key_len, iv_len;
+    /* Generate Keys */
+    uint8_t *write_key, *write_iv;
+    uint8_t *read_key, *read_iv;
+    int32_t mac_len, key_len, iv_len;
 
-	key_len = EVP_CIPHER_key_length(c);
-	iv_len = EVP_CIPHER_iv_length(c); //EVP_GCM_TLS_FIXED_IV_LEN;
-	mac_len = EVP_MD_size(f->message_digest);
-	int32_t total_len = key_len + iv_len + mac_len;
-	total_len *= 2;
-	uint8_t *key_block = ecalloc(1, total_len);
+    key_len = EVP_CIPHER_key_length(c);
+    iv_len = EVP_CIPHER_iv_length(c); //EVP_GCM_TLS_FIXED_IV_LEN;
+    mac_len = EVP_MD_size(f->message_digest);
+    int32_t total_len = key_len + iv_len + mac_len;
+    total_len *= 2;
+    uint8_t *key_block = ecalloc(1, total_len);
 
-	PRF(f, f->master_secret, SSL3_MASTER_SECRET_SIZE,
-			(uint8_t *) TLS_MD_KEY_EXPANSION_CONST, TLS_MD_KEY_EXPANSION_CONST_SIZE,
-			f->server_random, SSL3_RANDOM_SIZE,
-			f->client_random, SSL3_RANDOM_SIZE,
-			NULL, 0,
-			key_block, total_len);
+    PRF(f, f->master_secret, SSL3_MASTER_SECRET_SIZE,
+            (uint8_t *) TLS_MD_KEY_EXPANSION_CONST, TLS_MD_KEY_EXPANSION_CONST_SIZE,
+            f->server_random, SSL3_RANDOM_SIZE,
+            f->client_random, SSL3_RANDOM_SIZE,
+            NULL, 0,
+            key_block, total_len);
 
 #ifdef DEBUG
-	printf("master secret: (%x:%d -> %x:%d)\n", f->src_ip.s_addr, f->src_port, f->dst_ip.s_addr, f->dst_port);
-	for(int i=0; i< SSL3_MASTER_SECRET_SIZE; i++){
-		printf("%02x ", f->master_secret[i]);
-	}
-	printf("\n");
+    printf("master secret: (%x:%d -> %x:%d)\n", f->src_ip.s_addr, f->src_port, f->dst_ip.s_addr, f->dst_port);
+    for(int i=0; i< SSL3_MASTER_SECRET_SIZE; i++){
+        printf("%02x ", f->master_secret[i]);
+    }
+    printf("\n");
 
-	printf("client random: (%x:%d -> %x:%d)\n", f->src_ip.s_addr, f->src_port, f->dst_ip.s_addr, f->dst_port);
-	for(int i=0; i< SSL3_RANDOM_SIZE; i++){
-		printf("%02x ", f->client_random[i]);
-	}
-	printf("\n");
+    printf("client random: (%x:%d -> %x:%d)\n", f->src_ip.s_addr, f->src_port, f->dst_ip.s_addr, f->dst_port);
+    for(int i=0; i< SSL3_RANDOM_SIZE; i++){
+        printf("%02x ", f->client_random[i]);
+    }
+    printf("\n");
 
-	printf("server random: (%x:%d -> %x:%d)\n", f->src_ip.s_addr, f->src_port, f->dst_ip.s_addr, f->dst_port);
-	for(int i=0; i< SSL3_RANDOM_SIZE; i++){
-		printf("%02x ", f->server_random[i]);
-	}
-	printf("\n");
+    printf("server random: (%x:%d -> %x:%d)\n", f->src_ip.s_addr, f->src_port, f->dst_ip.s_addr, f->dst_port);
+    for(int i=0; i< SSL3_RANDOM_SIZE; i++){
+        printf("%02x ", f->server_random[i]);
+    }
+    printf("\n");
 
-	printf("keyblock: (%x:%d -> %x:%d)\n", f->src_ip.s_addr, f->src_port, f->dst_ip.s_addr, f->dst_port);
-	for(int i=0; i< total_len; i++){
-		printf("%02x ", key_block[i]);
-	}
-	printf("\n");
+    printf("keyblock: (%x:%d -> %x:%d)\n", f->src_ip.s_addr, f->src_port, f->dst_ip.s_addr, f->dst_port);
+    for(int i=0; i< total_len; i++){
+        printf("%02x ", key_block[i]);
+    }
+    printf("\n");
 #endif
 
-	iv_len = EVP_GCM_TLS_FIXED_IV_LEN;
-	
-	write_key = key_block;
-	read_key = key_block + key_len;
-	write_iv = key_block + 2*key_len;
-	read_iv = key_block + 2*key_len + iv_len;
+    iv_len = EVP_GCM_TLS_FIXED_IV_LEN;
 
-	/* Initialize Cipher Contexts */
-	r_ctx = EVP_CIPHER_CTX_new();
-	w_ctx = EVP_CIPHER_CTX_new();
-	EVP_CIPHER_CTX_init(r_ctx);
-	EVP_CIPHER_CTX_init(w_ctx);
-	w_ctx_srvr = EVP_CIPHER_CTX_new();
-	r_ctx_srvr = EVP_CIPHER_CTX_new();
-	EVP_CIPHER_CTX_init(w_ctx_srvr);
-	EVP_CIPHER_CTX_init(r_ctx_srvr);
+    write_key = key_block;
+    read_key = key_block + key_len;
+    write_iv = key_block + 2*key_len;
+    read_iv = key_block + 2*key_len + iv_len;
 
-	/* Initialize MACs --- not needed for aes_256_gcm
-	write_mac = key_block + 2*key_len + 2*iv_len;
-	read_mac = key_block + 2*key_len + 2*iv_len + mac_len;
-	read_mac_ctx = EVP_MD_CTX_create();
-	write_mac_ctx = EVP_MD_CTX_create();
-	read_mac_key =EVP_PKEY_new_mac_key(EVP_PKEY_HMAC, NULL, read_mac, mac_len);
-	write_mac_key =EVP_PKEY_new_mac_key(EVP_PKEY_HMAC, NULL, write_mac, mac_len);
-	EVP_DigestSignInit(read_mac_ctx, NULL, EVP_sha384(), NULL, read_mac_key);
-	EVP_DigestSignInit(write_mac_ctx, NULL, EVP_sha384(), NULL, write_mac_key);
-	EVP_PKEY_free(read_mac_key);
-	EVP_PKEY_free(write_mac_key);*/
+    /* Initialize Cipher Contexts */
+    r_ctx = EVP_CIPHER_CTX_new();
+    w_ctx = EVP_CIPHER_CTX_new();
+    EVP_CIPHER_CTX_init(r_ctx);
+    EVP_CIPHER_CTX_init(w_ctx);
+    w_ctx_srvr = EVP_CIPHER_CTX_new();
+    r_ctx_srvr = EVP_CIPHER_CTX_new();
+    EVP_CIPHER_CTX_init(w_ctx_srvr);
+    EVP_CIPHER_CTX_init(r_ctx_srvr);
+
+    /* Initialize MACs --- not needed for aes_256_gcm
+       write_mac = key_block + 2*key_len + 2*iv_len;
+       read_mac = key_block + 2*key_len + 2*iv_len + mac_len;
+       read_mac_ctx = EVP_MD_CTX_create();
+       write_mac_ctx = EVP_MD_CTX_create();
+       read_mac_key =EVP_PKEY_new_mac_key(EVP_PKEY_HMAC, NULL, read_mac, mac_len);
+       write_mac_key =EVP_PKEY_new_mac_key(EVP_PKEY_HMAC, NULL, write_mac, mac_len);
+       EVP_DigestSignInit(read_mac_ctx, NULL, EVP_sha384(), NULL, read_mac_key);
+       EVP_DigestSignInit(write_mac_ctx, NULL, EVP_sha384(), NULL, write_mac_key);
+       EVP_PKEY_free(read_mac_key);
+       EVP_PKEY_free(write_mac_key);*/
 
 
 #ifdef DEBUG_HS_EXTRA
@@ -1278,8 +1278,8 @@ int init_ciphers(flow *f){
             fprintf(stderr, "%02x", read_iv[i]);
         fprintf(stderr, "\n");
     }
-    
-	{
+
+    {
         int i;
         fprintf(stderr, "EVP_CipherInit_ex(w_ctx,c,key=,iv=,which)\n");
         fprintf(stderr, "\tkey= ");
@@ -1293,44 +1293,44 @@ int init_ciphers(flow *f){
     }
 #endif 
 
-	if(!EVP_CipherInit_ex(r_ctx, c, NULL, read_key, NULL, 0)){
-		printf("FAIL r_ctx\n");
-	}
-	if(!EVP_CipherInit_ex(w_ctx, c, NULL, write_key, NULL, 1)){
-		printf("FAIL w_ctx\n");
-	}
-	if(!EVP_CipherInit_ex(w_ctx_srvr, c, NULL, read_key, NULL, 1)){
-		printf("FAIL w_ctx_srvr\n");
-	}
-	if(!EVP_CipherInit_ex(r_ctx_srvr, c, NULL, write_key, NULL, 0)){
-		printf("FAIL r_ctx_srvr\n");
-	}
-	EVP_CIPHER_CTX_ctrl(r_ctx, EVP_CTRL_GCM_SET_IV_FIXED, EVP_GCM_TLS_FIXED_IV_LEN, read_iv);
-	EVP_CIPHER_CTX_ctrl(w_ctx, EVP_CTRL_GCM_SET_IV_FIXED, EVP_GCM_TLS_FIXED_IV_LEN, write_iv);
-	EVP_CIPHER_CTX_ctrl(w_ctx_srvr, EVP_CTRL_GCM_SET_IV_FIXED, EVP_GCM_TLS_FIXED_IV_LEN, read_iv);
-	EVP_CIPHER_CTX_ctrl(r_ctx_srvr, EVP_CTRL_GCM_SET_IV_FIXED, EVP_GCM_TLS_FIXED_IV_LEN, write_iv);
+    if(!EVP_CipherInit_ex(r_ctx, c, NULL, read_key, NULL, 0)){
+        printf("FAIL r_ctx\n");
+    }
+    if(!EVP_CipherInit_ex(w_ctx, c, NULL, write_key, NULL, 1)){
+        printf("FAIL w_ctx\n");
+    }
+    if(!EVP_CipherInit_ex(w_ctx_srvr, c, NULL, read_key, NULL, 1)){
+        printf("FAIL w_ctx_srvr\n");
+    }
+    if(!EVP_CipherInit_ex(r_ctx_srvr, c, NULL, write_key, NULL, 0)){
+        printf("FAIL r_ctx_srvr\n");
+    }
+    EVP_CIPHER_CTX_ctrl(r_ctx, EVP_CTRL_GCM_SET_IV_FIXED, EVP_GCM_TLS_FIXED_IV_LEN, read_iv);
+    EVP_CIPHER_CTX_ctrl(w_ctx, EVP_CTRL_GCM_SET_IV_FIXED, EVP_GCM_TLS_FIXED_IV_LEN, write_iv);
+    EVP_CIPHER_CTX_ctrl(w_ctx_srvr, EVP_CTRL_GCM_SET_IV_FIXED, EVP_GCM_TLS_FIXED_IV_LEN, read_iv);
+    EVP_CIPHER_CTX_ctrl(r_ctx_srvr, EVP_CTRL_GCM_SET_IV_FIXED, EVP_GCM_TLS_FIXED_IV_LEN, write_iv);
 
-        /* Set up gcm cipher ctx for partial decryption */
-        AES_KEY *key = ecalloc(1, sizeof(AES_KEY));
-        AES_set_encrypt_key(read_key, EVP_CIPHER_CTX_key_length(r_ctx)*8, key);
-        o_gcm = CRYPTO_gcm128_new( key, (block128_f) AES_encrypt);
-        f->gcm_ctx_key = key;
+    /* Set up gcm cipher ctx for partial decryption */
+    AES_KEY *key = ecalloc(1, sizeof(AES_KEY));
+    AES_set_encrypt_key(read_key, EVP_CIPHER_CTX_key_length(r_ctx)*8, key);
+    o_gcm = CRYPTO_gcm128_new( key, (block128_f) AES_encrypt);
+    f->gcm_ctx_key = key;
 
-	iv_len = EVP_CIPHER_CTX_iv_length(r_ctx);
-        f->gcm_ctx_iv = emalloc(iv_len);
-        f->gcm_ctx_ivlen = iv_len;
-        memcpy(f->gcm_ctx_iv, read_iv, EVP_GCM_TLS_FIXED_IV_LEN);
+    iv_len = EVP_CIPHER_CTX_iv_length(r_ctx);
+    f->gcm_ctx_iv = emalloc(iv_len);
+    f->gcm_ctx_ivlen = iv_len;
+    memcpy(f->gcm_ctx_iv, read_iv, EVP_GCM_TLS_FIXED_IV_LEN);
 
-        /* Assign ctxs to flow structure */
-	f->clnt_read_ctx = r_ctx;
-	f->clnt_write_ctx = w_ctx;
-	f->srvr_read_ctx = r_ctx_srvr;
-	f->srvr_write_ctx = w_ctx_srvr;
+    /* Assign ctxs to flow structure */
+    f->clnt_read_ctx = r_ctx;
+    f->clnt_write_ctx = w_ctx;
+    f->srvr_read_ctx = r_ctx_srvr;
+    f->srvr_write_ctx = w_ctx_srvr;
 
-        f->gcm_ctx_out = o_gcm;
+    f->gcm_ctx_out = o_gcm;
 
-	free(key_block);
-	return 0;
+    free(key_block);
+    return 0;
 }
 
 /* Generate the keys for a client's super encryption layer
@@ -1345,212 +1345,212 @@ int init_ciphers(flow *f){
  */
 void generate_client_super_keys(uint8_t *secret, client *c){
 
-	EVP_MD_CTX *mac_ctx;
-	const EVP_MD *md = EVP_sha256();
+    EVP_MD_CTX *mac_ctx;
+    const EVP_MD *md = EVP_sha256();
 
-	FILE *fp;
+    FILE *fp;
 
-	//extract shared secret from SLITHEEN_ID
-	uint8_t shared_secret[16];
+    //extract shared secret from SLITHEEN_ID
+    uint8_t shared_secret[16];
     byte privkey[PTWIST_BYTES];
 
-	fp = fopen("privkey", "rb");
-	if (fp == NULL) {
-		perror("fopen");
-		exit(1);
-	}
-	if(fread(privkey, PTWIST_BYTES, 1, fp) < 1){
-		perror("fread");
-		exit(1);
-	}
-	fclose(fp);
+    fp = fopen("privkey", "rb");
+    if (fp == NULL) {
+        perror("fopen");
+        exit(1);
+    }
+    if(fread(privkey, PTWIST_BYTES, 1, fp) < 1){
+        perror("fread");
+        exit(1);
+    }
+    fclose(fp);
 
-	/* check tag*/ 
-	if(check_tag(shared_secret, privkey, secret, (const byte *)"context", 7)){
-		//something went wrong O.o
-		printf("Error extracting secret from tag\n");
-		return;
-	}
-
-#ifdef DEBUG
-	printf("Shared secret: ");
-	for(int i=0; i< 16; i++){
-		printf("%02x ", shared_secret[i]);
-	}
-	printf("\n");
-#endif
-
-	/* Generate Keys */
-	uint8_t *hdr_key, *bdy_key;
-	uint8_t *mac_secret;
-	EVP_PKEY *mac_key;
-	int32_t mac_len, key_len;
-
-	key_len = EVP_CIPHER_key_length(EVP_aes_256_cbc());
-	mac_len = EVP_MD_size(md);
-	int32_t total_len = 2*key_len + mac_len;
-	uint8_t *key_block = ecalloc(1, total_len);
-
-	PRF(NULL, shared_secret, SLITHEEN_SUPER_SECRET_SIZE,
-			(uint8_t *) SLITHEEN_SUPER_CONST, SLITHEEN_SUPER_CONST_SIZE,
-			NULL, 0,
-			NULL, 0,
-			NULL, 0,
-			key_block, total_len);
+    /* check tag*/ 
+    if(check_tag(shared_secret, privkey, secret, (const byte *)"context", 7)){
+        //something went wrong O.o
+        printf("Error extracting secret from tag\n");
+        return;
+    }
 
 #ifdef DEBUG
-	printf("slitheend id: \n");
-	for(int i=0; i< SLITHEEN_ID_LEN; i++){
-		printf("%02x ", secret[i]);
-	}
-	printf("\n");
-
-	printf("keyblock: \n");
-	for(int i=0; i< total_len; i++){
-		printf("%02x ", key_block[i]);
-	}
-	printf("\n");
+    printf("Shared secret: ");
+    for(int i=0; i< 16; i++){
+        printf("%02x ", shared_secret[i]);
+    }
+    printf("\n");
 #endif
 
-	hdr_key = key_block;
-	bdy_key = key_block + key_len;
-	mac_secret = key_block + 2*key_len;
+    /* Generate Keys */
+    uint8_t *hdr_key, *bdy_key;
+    uint8_t *mac_secret;
+    EVP_PKEY *mac_key;
+    int32_t mac_len, key_len;
 
-	/* Initialize MAC Context */
-	mac_ctx = EVP_MD_CTX_create();
-	
-	EVP_DigestInit_ex(mac_ctx, md, NULL);
-	mac_key = EVP_PKEY_new_mac_key(EVP_PKEY_HMAC, NULL, mac_secret, mac_len);
-	EVP_DigestSignInit(mac_ctx, NULL, md, NULL, mac_key);
+    key_len = EVP_CIPHER_key_length(EVP_aes_256_cbc());
+    mac_len = EVP_MD_size(md);
+    int32_t total_len = 2*key_len + mac_len;
+    uint8_t *key_block = ecalloc(1, total_len);
 
-	c->header_key = emalloc(key_len);
-	c->body_key = emalloc(key_len);
+    PRF(NULL, shared_secret, SLITHEEN_SUPER_SECRET_SIZE,
+            (uint8_t *) SLITHEEN_SUPER_CONST, SLITHEEN_SUPER_CONST_SIZE,
+            NULL, 0,
+            NULL, 0,
+            NULL, 0,
+            key_block, total_len);
 
-	memcpy(c->header_key, hdr_key, key_len);
-	memcpy(c->body_key, bdy_key, key_len);
+#ifdef DEBUG
+    printf("slitheend id: \n");
+    for(int i=0; i< SLITHEEN_ID_LEN; i++){
+        printf("%02x ", secret[i]);
+    }
+    printf("\n");
 
-	c->mac_ctx = mac_ctx;
+    printf("keyblock: \n");
+    for(int i=0; i< total_len; i++){
+        printf("%02x ", key_block[i]);
+    }
+    printf("\n");
+#endif
 
-	//Free everything
-	free(key_block);
-	EVP_PKEY_free(mac_key);
+    hdr_key = key_block;
+    bdy_key = key_block + key_len;
+    mac_secret = key_block + 2*key_len;
 
-	return;
+    /* Initialize MAC Context */
+    mac_ctx = EVP_MD_CTX_create();
+
+    EVP_DigestInit_ex(mac_ctx, md, NULL);
+    mac_key = EVP_PKEY_new_mac_key(EVP_PKEY_HMAC, NULL, mac_secret, mac_len);
+    EVP_DigestSignInit(mac_ctx, NULL, md, NULL, mac_key);
+
+    c->header_key = emalloc(key_len);
+    c->body_key = emalloc(key_len);
+
+    memcpy(c->header_key, hdr_key, key_len);
+    memcpy(c->body_key, bdy_key, key_len);
+
+    c->mac_ctx = mac_ctx;
+
+    //Free everything
+    free(key_block);
+    EVP_PKEY_free(mac_key);
+
+    return;
 
 }
 
 int super_encrypt(client *c, uint8_t *data, uint32_t len){
 
-	int retval = 1;
+    int retval = 1;
 
-	EVP_CIPHER_CTX *hdr_ctx = NULL;
-	EVP_CIPHER_CTX *bdy_ctx = NULL;
-	
-	int32_t out_len;
-	size_t mac_len;
-	uint8_t *p = data;
+    EVP_CIPHER_CTX *hdr_ctx = NULL;
+    EVP_CIPHER_CTX *bdy_ctx = NULL;
 
-	uint8_t output[EVP_MAX_MD_SIZE];
+    int32_t out_len;
+    size_t mac_len;
+    uint8_t *p = data;
 
-	//first encrypt the header	
+    uint8_t output[EVP_MAX_MD_SIZE];
+
+    //first encrypt the header	
 #ifdef DEBUG_DOWN
-	printf("Plaintext Header:\n");
-	for(int i=0; i< SLITHEEN_HEADER_LEN; i++){
-		printf("%02x ", p[i]);
-	}
-	printf("\n");
+    printf("Plaintext Header:\n");
+    for(int i=0; i< SLITHEEN_HEADER_LEN; i++){
+        printf("%02x ", p[i]);
+    }
+    printf("\n");
 #endif
 
-	hdr_ctx = EVP_CIPHER_CTX_new();
+    hdr_ctx = EVP_CIPHER_CTX_new();
 
-	if(c->header_key == NULL){
-            printf("c->header_key is null\n");
-		retval = 0;
-		goto end;
-	}
+    if(c->header_key == NULL){
+        printf("c->header_key is null\n");
+        retval = 0;
+        goto end;
+    }
 
-	EVP_CipherInit_ex(hdr_ctx, EVP_aes_256_cbc(), NULL, c->header_key, NULL, 1);
-	
-	if(!EVP_CipherUpdate(hdr_ctx, p, &out_len, p, SLITHEEN_HEADER_LEN)){
-		printf("Failed!\n");
-		retval = 0;
-		goto end;
-	}
+    EVP_CipherInit_ex(hdr_ctx, EVP_aes_256_cbc(), NULL, c->header_key, NULL, 1);
+
+    if(!EVP_CipherUpdate(hdr_ctx, p, &out_len, p, SLITHEEN_HEADER_LEN)){
+        printf("Failed!\n");
+        retval = 0;
+        goto end;
+    }
 
 #ifdef DEBUG_DOWN
-	printf("Encrypted Header (%d bytes)\n", out_len);
-	for(int i=0; i< out_len; i++){
-		printf("%02x ", p[i]);
-	}
-	printf("\n");
+    printf("Encrypted Header (%d bytes)\n", out_len);
+    for(int i=0; i< out_len; i++){
+        printf("%02x ", p[i]);
+    }
+    printf("\n");
 #endif
 
-	if(len == 0){ //only encrypt header: body contains garbage bytes
-		retval = 1;
-		goto end;
-	}
+    if(len == 0){ //only encrypt header: body contains garbage bytes
+        retval = 1;
+        goto end;
+    }
 
-	//encrypt the body
-	p += SLITHEEN_HEADER_LEN;
+    //encrypt the body
+    p += SLITHEEN_HEADER_LEN;
 
-	//generate IV
-	RAND_bytes(p, 16);
+    //generate IV
+    RAND_bytes(p, 16);
 
-	//set up cipher ctx
-	bdy_ctx = EVP_CIPHER_CTX_new();
+    //set up cipher ctx
+    bdy_ctx = EVP_CIPHER_CTX_new();
 
-	EVP_CipherInit_ex(bdy_ctx, EVP_aes_256_cbc(), NULL, c->body_key, p, 1);
-	
-	p+= 16;
+    EVP_CipherInit_ex(bdy_ctx, EVP_aes_256_cbc(), NULL, c->body_key, p, 1);
+
+    p+= 16;
 
 #ifdef DEBUG
-	printf("Plaintext:\n");
-	for(int i=0; i< len; i++){
-		printf("%02x ", p[i]);
-	}
-	printf("\n");
+    printf("Plaintext:\n");
+    for(int i=0; i< len; i++){
+        printf("%02x ", p[i]);
+    }
+    printf("\n");
 #endif
 
-	if(!EVP_CipherUpdate(bdy_ctx, p, &out_len, p, len)){
-		printf("Failed!\n");
-		retval = 0;
-		goto end;
-	}
+    if(!EVP_CipherUpdate(bdy_ctx, p, &out_len, p, len)){
+        printf("Failed!\n");
+        retval = 0;
+        goto end;
+    }
 
 #ifdef DEBUG
-	printf("Encrypted %d bytes\n", out_len);
-	printf("Encrypted data:\n");
-	for(int i=0; i< out_len; i++){
-		printf("%02x ", p[i]);
-	}
-	printf("\n");
+    printf("Encrypted %d bytes\n", out_len);
+    printf("Encrypted data:\n");
+    for(int i=0; i< out_len; i++){
+        printf("%02x ", p[i]);
+    }
+    printf("\n");
 #endif
-	
-	//MAC at the end
-	EVP_MD_CTX *mac_ctx = NULL;
+
+    //MAC at the end
+    EVP_MD_CTX *mac_ctx = NULL;
 
 #if OPENSSL_VERSION_NUMBER >= 0x1010000eL
-	mac_ctx = EVP_MD_CTX_new();
+    mac_ctx = EVP_MD_CTX_new();
 #else
-        mac_ctx = ecalloc(1, sizeof(EVP_MD_CTX));
-        EVP_MD_CTX_init(mac_ctx);
+    mac_ctx = ecalloc(1, sizeof(EVP_MD_CTX));
+    EVP_MD_CTX_init(mac_ctx);
 #endif
 
-	EVP_MD_CTX_copy_ex(mac_ctx, c->mac_ctx);
+    EVP_MD_CTX_copy_ex(mac_ctx, c->mac_ctx);
 
-	EVP_DigestSignUpdate(mac_ctx, p, out_len);
+    EVP_DigestSignUpdate(mac_ctx, p, out_len);
 
-	EVP_DigestSignFinal(mac_ctx, output, &mac_len);
+    EVP_DigestSignFinal(mac_ctx, output, &mac_len);
 
 #if OPENSSL_VERSION_NUMBER >= 0x1010000eL
-	EVP_MD_CTX_free(mac_ctx);
+    EVP_MD_CTX_free(mac_ctx);
 #else
-	EVP_MD_CTX_cleanup(mac_ctx);
-        free(mac_ctx);
+    EVP_MD_CTX_cleanup(mac_ctx);
+    free(mac_ctx);
 #endif
 
-	p += out_len;
-	memcpy(p, output, 16);
+    p += out_len;
+    memcpy(p, output, 16);
 
 #ifdef DEBUG_PARSE
     printf("Computed mac:\n");
@@ -1562,16 +1562,16 @@ int super_encrypt(client *c, uint8_t *data, uint32_t len){
 #endif
 
 end:
-	if(hdr_ctx != NULL){
-		EVP_CIPHER_CTX_cleanup(hdr_ctx);
-		OPENSSL_free(hdr_ctx);
-	}
-	if(bdy_ctx != NULL){
-		EVP_CIPHER_CTX_cleanup(bdy_ctx);
-		OPENSSL_free(bdy_ctx);
-	}
+    if(hdr_ctx != NULL){
+        EVP_CIPHER_CTX_cleanup(hdr_ctx);
+        OPENSSL_free(hdr_ctx);
+    }
+    if(bdy_ctx != NULL){
+        EVP_CIPHER_CTX_cleanup(bdy_ctx);
+        OPENSSL_free(bdy_ctx);
+    }
 
-	return retval;
+    return retval;
 }
 
 /** Checks a handshake message to see if it is tagged or a
@@ -1587,98 +1587,98 @@ end:
  */
 void check_handshake(struct packet_info *info){
 
-	FILE *fp;
-	int res, code;
-	uint8_t *hello_rand;
-	const struct handshake_header *handshake_hdr;
+    FILE *fp;
+    int res, code;
+    uint8_t *hello_rand;
+    const struct handshake_header *handshake_hdr;
 
     byte privkey[PTWIST_BYTES];
-	byte key[16];
+    byte key[16];
 
-	uint8_t *p = info->app_data + RECORD_HEADER_LEN;
-	handshake_hdr = (struct handshake_header*) p;
+    uint8_t *p = info->app_data + RECORD_HEADER_LEN;
+    handshake_hdr = (struct handshake_header*) p;
 
-	code = handshake_hdr->type;
+    code = handshake_hdr->type;
 
-	if (code == 0x01){
-		p += CLIENT_HELLO_HEADER_LEN;
-		//now pointing to hello random :D
-		hello_rand = p;
-		p += 4; //skipping time bytes
-		/* Load the private key */
-		fp = fopen("privkey", "rb");
-		if (fp == NULL) {
-			perror("fopen");
-			exit(1);
-		}
-		res = fread(privkey, PTWIST_BYTES, 1, fp);
-		if (res < 1) {
-			perror("fread");
-			exit(1);
-		}
-		fclose(fp);
+    if (code == 0x01){
+        p += CLIENT_HELLO_HEADER_LEN;
+        //now pointing to hello random :D
+        hello_rand = p;
+        p += 4; //skipping time bytes
+        /* Load the private key */
+        fp = fopen("privkey", "rb");
+        if (fp == NULL) {
+            perror("fopen");
+            exit(1);
+        }
+        res = fread(privkey, PTWIST_BYTES, 1, fp);
+        if (res < 1) {
+            perror("fread");
+            exit(1);
+        }
+        fclose(fp);
 
-		/* check tag*/ 
-                uint8_t context[4 + SSL3_RANDOM_SIZE - PTWIST_TAG_BYTES];
-                memcpy(context, &info->ip_hdr->dst.s_addr, 4);
-                memcpy(context + 4, hello_rand, SSL3_RANDOM_SIZE - PTWIST_TAG_BYTES);
-		res = check_tag(key, privkey, p, (const byte *)context, sizeof(context));
-		//res = check_tag(key, privkey, p, (const byte *)"context", 7);//for phantomjs testing
-		if (!res) {
+        /* check tag*/ 
+        uint8_t context[4 + SSL3_RANDOM_SIZE - PTWIST_TAG_BYTES];
+        memcpy(context, &info->ip_hdr->dst.s_addr, 4);
+        memcpy(context + 4, hello_rand, SSL3_RANDOM_SIZE - PTWIST_TAG_BYTES);
+        res = check_tag(key, privkey, p, (const byte *)context, sizeof(context));
+        //res = check_tag(key, privkey, p, (const byte *)"context", 7);//for phantomjs testing
+        if (!res) {
 
 #ifdef DEBUG_HS
-			printf("Received tagged flow! (key =");
-			for(int i=0; i<16;i++){
-			    printf(" %02x", key[i]);
-			}
-			printf(")\n");
+            printf("Received tagged flow! (key =");
+            for(int i=0; i<16;i++){
+                printf(" %02x", key[i]);
+            }
+            printf(")\n");
 #endif
 
-			/* If flow is not in table, save it */
-			flow *flow_ptr = check_flow(info);
-			if(flow_ptr == NULL){
-				flow_ptr = add_flow(info);
-				if(flow_ptr == NULL){
-					fprintf(stderr, "Memory failure\n");
-					return;
-				}
+            /* If flow is not in table, save it */
+            flow *flow_ptr = check_flow(info);
+            if(flow_ptr == NULL){
+                flow_ptr = add_flow(info);
+                if(flow_ptr == NULL){
+                    fprintf(stderr, "Memory failure\n");
+                    return;
+                }
 
-				for(int i=0; i<16; i++){
-					flow_ptr->key[i] = key[i];
-				}
+                for(int i=0; i<16; i++){
+                    flow_ptr->key[i] = key[i];
+                }
 
-				memcpy(flow_ptr->client_random, hello_rand, SSL3_RANDOM_SIZE);
+                memcpy(flow_ptr->client_random, hello_rand, SSL3_RANDOM_SIZE);
 #ifdef DEBUG
-				for(int i=0; i< SSL3_RANDOM_SIZE; i++){
-					printf("%02x ", hello_rand[i]);
-				}
-				printf("\n");
-				
-				printf("Saved new flow\n");
+                for(int i=0; i< SSL3_RANDOM_SIZE; i++){
+                    printf("%02x ", hello_rand[i]);
+                }
+                printf("\n");
+
+                printf("Saved new flow\n");
 #endif
 
-				flow_ptr->ref_ctr--;
+                flow_ptr->ref_ctr--;
 
-			} else { /* else update saved flow with new key and random nonce */
-				for(int i=0; i<16; i++){
-					flow_ptr->key[i] = key[i];
-				}
+            } else { /* else update saved flow with new key and random nonce */
+                for(int i=0; i<16; i++){
+                    flow_ptr->key[i] = key[i];
+                }
 
-				memcpy(flow_ptr->client_random, hello_rand, SSL3_RANDOM_SIZE);
-				flow_ptr->ref_ctr--;
-                                printf("Flow updated in check_flow. %p ref_ctr %d\n", flow_ptr, flow_ptr->ref_ctr);
-			}
+                memcpy(flow_ptr->client_random, hello_rand, SSL3_RANDOM_SIZE);
+                flow_ptr->ref_ctr--;
+                printf("Flow updated in check_flow. %p ref_ctr %d\n", flow_ptr, flow_ptr->ref_ctr);
+            }
 
-		}
-	}
+        }
+    }
 }
 
 /* Check the given tag with the given context and private key.  Return 0
    if the tag is properly formed, non-0 if not.  If the tag is correct,
    set key to the resulting secret key. */
 int check_tag(byte key[16], const byte privkey[PTWIST_BYTES],
-	const byte tag[PTWIST_TAG_BYTES], const byte *context,
-	size_t context_len)
+        const byte tag[PTWIST_TAG_BYTES], const byte *context,
+        size_t context_len)
 {
     int ret = -1;
     byte sharedsec[PTWIST_BYTES+context_len];
@@ -1713,26 +1713,26 @@ int check_tag(byte key[16], const byte privkey[PTWIST_BYTES],
      * about alignment, and is little endian. */
     firstbits = *(unsigned int*)hashout;
     if ((firstbits & PTWIST_PUZZLE_MASK) == 0) {
-	firstpass = 1;
+        firstpass = 1;
     }
 #else
 #error "Code assumes PTWIST_PUZZLE_STRENGTH < 32"
 #endif
     if (firstpass) {
-	bn_t Hbn, Tbn;
-	bn_new(Hbn);
-	bn_new(Tbn);
-	hashout[PTWIST_HASH_TOTBYTES-1] &= PTWIST_HASH_MASK;
-	bn_read_bin(Hbn, hashout, PTWIST_HASH_TOTBYTES, BN_POS);
-	bn_rsh(Hbn, Hbn, PTWIST_PUZZLE_STRENGTH);
-	bn_read_bin(Tbn, tag+PTWIST_BYTES, PTWIST_TAG_BYTES-PTWIST_BYTES,
-		    BN_POS);
-	bn_rsh(Tbn, Tbn, PTWIST_RESP_BITS);
+        bn_t Hbn, Tbn;
+        bn_new(Hbn);
+        bn_new(Tbn);
+        hashout[PTWIST_HASH_TOTBYTES-1] &= PTWIST_HASH_MASK;
+        bn_read_bin(Hbn, hashout, PTWIST_HASH_TOTBYTES, BN_POS);
+        bn_rsh(Hbn, Hbn, PTWIST_PUZZLE_STRENGTH);
+        bn_read_bin(Tbn, tag+PTWIST_BYTES, PTWIST_TAG_BYTES-PTWIST_BYTES,
+                BN_POS);
+        bn_rsh(Tbn, Tbn, PTWIST_RESP_BITS);
 
-	ret = (bn_cmp(Tbn,Hbn) != CMP_EQ);
+        ret = (bn_cmp(Tbn,Hbn) != CMP_EQ);
 
-	bn_free(Hbn);
-	bn_free(Tbn);
+        bn_free(Hbn);
+        bn_free(Tbn);
     }
 #else
     /* We're not using a client puzzle, so just check that the first
@@ -1742,7 +1742,7 @@ int check_tag(byte key[16], const byte privkey[PTWIST_BYTES],
     ret = (memcmp(tag+PTWIST_BYTES, taghashout, PTWIST_HASH_SHOWBITS/8) != 0);
 #endif
     if (ret == 0) {
-	memmove(key, taghashout+16, 16);
+        memmove(key, taghashout+16, 16);
     }
     return ret;
 }
@@ -1758,7 +1758,7 @@ int check_tag(byte key[16], const byte privkey[PTWIST_BYTES],
  */
 
 #define EVP_C_DATA(kstruct, ctx) \
-        ((kstruct *)EVP_CIPHER_CTX_get_cipher_data(ctx))
+    ((kstruct *)EVP_CIPHER_CTX_get_cipher_data(ctx))
 
 /*
  * Handle TLS GCM packet format. This consists of the last portion of the IV
@@ -1770,13 +1770,13 @@ int check_tag(byte key[16], const byte privkey[PTWIST_BYTES],
 #define GCM_CTX_LEN 380 + sizeof(block128_f)
 
 int partial_aes_gcm_tls_cipher(flow *f, unsigned char *out,
-                              const unsigned char *in, size_t len, uint8_t enc)
+        const unsigned char *in, size_t len, uint8_t enc)
 {
 
     // Encrypt/decrypt must be performed in place 
     int rv = -1;
     if (out != in
-        || len < (EVP_GCM_TLS_EXPLICIT_IV_LEN + EVP_GCM_TLS_TAG_LEN))
+            || len < (EVP_GCM_TLS_EXPLICIT_IV_LEN + EVP_GCM_TLS_TAG_LEN))
         return -1;
 
     //set IV

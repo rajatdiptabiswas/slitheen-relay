@@ -32,7 +32,7 @@
 #include "ptwist.h"
 
 #define n2s(c,s)        ((s=(((unsigned int)(c[0]))<< 8)| \
-							(((unsigned int)(c[1]))    )),c+=2)
+            (((unsigned int)(c[1]))    )),c+=2)
 
 
 /* Curves */
@@ -55,11 +55,11 @@ int extract_server_random(flow *f, uint8_t *hs);
 int compute_master_secret(flow *f);
 
 int PRF(flow *f, uint8_t *secret, int32_t secret_len,
-		uint8_t *seed1, int32_t seed1_len,
-		uint8_t *seed2, int32_t seed2_len,
-		uint8_t *seed3, int32_t seed3_len,
-		uint8_t *seed4, int32_t seed4_len,
-		uint8_t *output, int32_t output_len);
+        uint8_t *seed1, int32_t seed1_len,
+        uint8_t *seed2, int32_t seed2_len,
+        uint8_t *seed3, int32_t seed3_len,
+        uint8_t *seed4, int32_t seed4_len,
+        uint8_t *output, int32_t output_len);
 
 int mark_finished_hash(flow *f, uint8_t *hs);
 int init_ciphers(flow *f);
@@ -68,8 +68,8 @@ int super_encrypt(client *c, uint8_t *data, uint32_t len);
 void check_handshake(struct packet_info *info);
 
 int check_tag(byte key[16], const byte privkey[PTWIST_BYTES],
-	const byte tag[PTWIST_TAG_BYTES], const byte *context,
-	size_t context_len);
+        const byte tag[PTWIST_TAG_BYTES], const byte *context,
+        size_t context_len);
 #define PRE_MASTER_MAX_LEN BUFSIZ
 
 #define SLITHEEN_KEYGEN_CONST "SLITHEEN_KEYGEN"
