@@ -1,4 +1,4 @@
-/* Name: slitheen-proxy.c 
+/* Name: slitheen.c 
  *
  * Slitheen - a decoy routing system for censorship resistance
  * Copyright (C) 2017 Cecylia Bocovich (cbocovic@uwaterloo.ca)
@@ -50,7 +50,7 @@ void update_window_expiration(flow *f, struct packet_info *info);
 void retransmit(flow *f, struct packet_info *info, uint32_t data_to_fill);
 
 void usage(void){
-    printf("Usage: slitheen-proxy [internal network interface] [NAT interface]\n");
+    printf("Usage: slitheen [internal network interface] [NAT interface]\n");
 }
 
 int main(int argc, char *argv[]){

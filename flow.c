@@ -1193,7 +1193,7 @@ int save_session_ticket(flow *f, uint8_t *hs, uint32_t len){
 /* Adds a (handshake) packet to the flow's packet chain. If it can complete a record, passes
  * this record to update_flow
  *
- * Note: the code in slitheen-proxy.c should ensure that this function only ever gets the next
+ * Note: the code in slitheen.c should ensure that this function only ever gets the next
  * expected sequence number
  */
 int add_packet(flow *f, struct packet_info *info){
