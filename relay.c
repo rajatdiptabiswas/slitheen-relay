@@ -921,7 +921,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 		}
 		record_len = RECORD_LEN(record_hdr);
 
-#ifdef DEBUG
+#ifdef DEBUG_DOWN
 		fprintf(stdout,"Flow: %x > %x (%s)\n", info->ip_hdr->src.s_addr, info->ip_hdr->dst.s_addr, (info->ip_hdr->src.s_addr != f->src_ip.s_addr)? "incoming":"outgoing");
 		fprintf(stdout,"ID number: %u\n", htonl(info->ip_hdr->id));
 		fprintf(stdout,"Sequence number: %u\n", htonl(info->tcp_hdr->sequence_num));
@@ -931,6 +931,11 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 			printf("%02x ", ((uint8_t *) record_hdr)[i]);
 		}
 		printf("\n");
+
+                printf("Text: ");
+                printf("%s", ((uint8_t *) record_hdr) + RECORD_HEADER_LEN);
+		printf("\n");
+                
 		fflush(stdout);
 #endif
 
@@ -1090,7 +1095,23 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
                                                 printf("Found and replaced leaf header\n");
 #endif
 					} else {
-						f->replace_response = 0;
+                                            //check for video
+                                            len_ptr = strstr((const char *) p, "Content-Type: video/webm");
+                                            if(len_ptr != NULL){
+                                                printf("Found webm resource!\n");
+                                                f->replace_response = 1;
+                                                memcpy(len_ptr + 14, "sli/theenv", 10);
+
+						char *c = len_ptr + 14+10;
+						while(c[0] != '\r'){
+							c[0] = ' ';
+							c++;
+						}
+                                            }
+                                                
+                                            else {
+                                                f->replace_response = 0;
+                                            }
 					}
 
                                         //TODO: more cases for more status codes
