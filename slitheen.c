@@ -48,7 +48,6 @@
 void got_packet(uint8_t *args, const struct pcap_pkthdr *header, const uint8_t *packet);
 void *sniff_packets(void *);
 void process_packet(struct inject_args *iargs, const struct pcap_pkthdr *header, uint8_t *packet);
-void extract_packet_headers(uint8_t *packet, struct packet_info *info);
 struct packet_info *copy_packet_info(struct packet_info *src_info);
 
 void save_packet(flow *f, struct packet_info *info);
@@ -593,63 +592,5 @@ void retransmit(flow *f, struct packet_info *info, uint32_t data_to_fill){
         }
     }
     tcp_checksum(info);//update checksum
-}
-
-/** This function extracts the ip, tcp, and tls record headers
- * 	from a received packet (if they exist), and put them in 
- * 	a packet_info struct
- * 	
- */
-void extract_packet_headers(uint8_t *packet, struct packet_info *info){
-
-    /* First fill in IP header */
-    uint8_t *p = packet;
-    p += ETHER_HEADER_LEN; //skip ethernet header
-    info->ip_hdr = (struct ip_header*) p;
-    info->size_ip_hdr = IP_HEADER_LEN(info->ip_hdr);
-
-    /* Verify this is an IP packet */
-    if( (info->ip_hdr->versionihl >>4) != 4){
-        info->ip_hdr = NULL;
-        info->size_ip_hdr = 0;
-        info->tcp_hdr = NULL;
-        info->size_tcp_hdr = 0;
-        info->record_hdr = NULL;
-        return;
-    }
-
-    /* If this is a TCP segment, fill in TCP header */
-    if (info->ip_hdr->proto == IPPROTO_TCP){
-        p += info->size_ip_hdr;	//skip IP header
-
-        info->tcp_hdr = (struct tcp_header*) p;
-        info->size_tcp_hdr = TCP_HEADER_LEN(info->tcp_hdr);
-        p += info->size_tcp_hdr;
-    } else {
-        info->tcp_hdr = NULL;
-        info->size_tcp_hdr = 0;
-        info->record_hdr = NULL;
-        return;
-    }
-
-
-    /* If the application data contains a TLS record, fill in hdr */
-    info->app_data_len = htons(info->ip_hdr->len) - (info->size_ip_hdr + info->size_tcp_hdr);
-    if(info->app_data_len > 0){
-        info->app_data = p;
-        info->record_hdr = (struct tls_header*) p;
-
-        //check to see if this is a valid record
-        if((info->record_hdr->type < 0x14) || (info->record_hdr->type > 0x18)){
-            info->record_hdr = NULL;
-        }
-
-    } else {
-        info->record_hdr = NULL;
-        info->app_data = NULL;
-    }
-
-    return;
-
 }
 

@@ -127,6 +127,7 @@ struct inject_args {
     pcap_t *write_dev;
 };
 
+void extract_packet_headers(uint8_t *packet, struct packet_info *info);
 struct packet_info *copy_packet_info(struct packet_info *src_info);
 
 void inject_packet(struct inject_args *iargs, const struct pcap_pkthdr *header, uint8_t *packet);
