@@ -11,32 +11,20 @@
 #include "../cryptothread.h"
 #include "../packet.h"
 #include "../util.h"
+#include "test_util.h"
 
 START_TEST(test_recognize_notag){
     struct packet_info *info;
-    uint8_t *data;
-    FILE *fp;
-    uint64_t fsize;
+    uint8_t *packet;
 
     //populate packet_info with a tagged ClientHello message
-    fp = fopen("data/packet_untagged.dat", "rb");
-    if (fp == NULL) {
-        perror("fopen");
+    if(!read_file("data/packet_untagged.dat", &packet)){
         ck_abort();
     }
 
-    fseek(fp, 0, SEEK_END);
-    fsize = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-    data = smalloc(fsize);
-
-    int32_t result = fread(data, fsize, 1, fp);
-
-    fclose(fp);
-
     info = smalloc(sizeof(struct packet_info));
 
-    extract_packet_headers(data, info);
+    extract_packet_headers(packet, info);
 
     ck_assert_int_eq(check_handshake(info), 0);
 }
@@ -49,21 +37,10 @@ START_TEST(test_recognize_tag){
     uint64_t fsize;
 
     //populate packet_info with a tagged ClientHello message
-    fp = fopen("data/packet_tagged.dat", "rb");
-    if (fp == NULL) {
-        perror("fopen");
+    if(!read_file("data/packet_tagged.dat", &data)){
         ck_abort();
     }
 
-    fseek(fp, 0, SEEK_END);
-    fsize = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-    data = smalloc(fsize);
-
-    int32_t result = fread(data, fsize, 1, fp);
-
-    fclose(fp);
-    
     info = smalloc(sizeof(struct packet_info));
 
     extract_packet_headers(data, info);
