@@ -55,4 +55,4 @@ void *dequeue(queue *list);
 void *peek(queue *list, int32_t n);
 void remove_queue(queue *list);
 
-#endif /*_UTIL_H_*/
+#endif /* UTIL_H */

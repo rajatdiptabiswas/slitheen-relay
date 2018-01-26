@@ -61,4 +61,4 @@ typedef unsigned char byte;
 void ptwist_pointmul(byte out[PTWIST_BYTES], const byte x[PTWIST_BYTES],
         const byte seckey[PTWIST_BYTES]);
 
-#endif
+#endif /* PTWIST_H */

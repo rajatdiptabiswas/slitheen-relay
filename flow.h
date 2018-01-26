@@ -245,4 +245,4 @@ int save_session_ticket(flow *f, uint8_t *hs, uint32_t len);
 
 int add_packet(flow *f, struct packet_info *info);
 
-#endif /* __RELAY_H__ */
+#endif /* FLOW_H */

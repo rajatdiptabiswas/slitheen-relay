@@ -37,4 +37,4 @@ struct sniff_args {
 };
 
 
-#endif /* _SLITHEEN_H_ */
+#endif /* SLITHEEN_H */

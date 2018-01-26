@@ -93,4 +93,4 @@ void *proxy_covert_site(void *data);
 #define FORFEIT_REST 0x80
 #define USE_REST 0x90
 
-#endif /* _RELAY_H_ */
+#endif /* RELAY_H */
