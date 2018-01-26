@@ -35,6 +35,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* Defined debugging types */
 #ifdef DEBUG_HS
 #define DEBUG_HS 1
 #else
@@ -45,6 +46,30 @@
 #define DEBUG_CRYPTO 1
 #else
 #define DEBUG_CRYPTO 0
+#endif
+
+#ifdef DEBUG_FLOW
+#define DEBUG_FLOW 1
+#else
+#define DEBUG_FLOW 0
+#endif
+
+#ifdef DEBUG_UP
+#define DEBUG_UP 1
+#else
+#define DEBUG_UP 0
+#endif
+
+#ifdef DEBUG_PROXY
+#define DEBUG_PROXY 1
+#else
+#define DEBUG_PROXY 0
+#endif
+
+#ifdef DEBUG_DOWN
+#define DEBUG_DOWN 1
+#else
+#define DEBUG_DOWN 0
 #endif
 
 /* Debugging macros */

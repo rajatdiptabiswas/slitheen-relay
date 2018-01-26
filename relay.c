@@ -113,13 +113,10 @@ int replace_packet(flow *f, struct packet_info *info){
         return 0;
     }
 
-#ifdef DEBUG
-    fprintf(stdout,"Flow: %x:%d > %x:%d (%s)\n", info->ip_hdr->src.s_addr, ntohs(info->tcp_hdr->src_port), info->ip_hdr->dst.s_addr, ntohs(info->tcp_hdr->dst_port), (info->ip_hdr->src.s_addr != f->src_ip.s_addr)? "incoming":"outgoing");
-    fprintf(stdout,"ID number: %u\n", htonl(info->ip_hdr->id));
-    fprintf(stdout,"Sequence number: %u\n", htonl(info->tcp_hdr->sequence_num));
-    fprintf(stdout,"Acknowledgement number: %u\n", htonl(info->tcp_hdr->ack_num));
-    fflush(stdout);
-#endif
+    DEBUG_MSG(DEBUG_FLOW, "Flow: %x:%d > %x:%d (%s)\n", info->ip_hdr->src.s_addr, ntohs(info->tcp_hdr->src_port), info->ip_hdr->dst.s_addr, ntohs(info->tcp_hdr->dst_port), (info->ip_hdr->src.s_addr != f->src_ip.s_addr)? "incoming":"outgoing");
+    DEBUG_MSG(DEBUG_FLOW, "ID number: %u\n", htonl(info->ip_hdr->id));
+    DEBUG_MSG(DEBUG_FLOW, "Sequence number: %u\n", htonl(info->tcp_hdr->sequence_num));
+    DEBUG_MSG(DEBUG_FLOW, "Acknowledgement number: %u\n", htonl(info->tcp_hdr->ack_num));
 
     if(info->app_data_len <= 0){
         return 0;
@@ -131,10 +128,8 @@ int replace_packet(flow *f, struct packet_info *info){
         return 0;
     } else {
 
-#ifdef DEBUG
-        printf("Current sequence number: %d\n", f->downstream_seq_num);
-        printf("Received sequence number: %d\n", htonl(info->tcp_hdr->sequence_num));
-#endif
+        DEBUG_MSG(DEBUG_FLOW, "Current sequence number: %d\n", f->downstream_seq_num);
+        DEBUG_MSG(DEBUG_FLOW, "Received sequence number: %d\n", htonl(info->tcp_hdr->sequence_num));
 
         uint32_t offset = htonl(info->tcp_hdr->sequence_num) - f->downstream_seq_num;
         if(offset == 0)
@@ -142,17 +137,6 @@ int replace_packet(flow *f, struct packet_info *info){
 
         /* if incoming, replace with data from queue */
         process_downstream(f, offset, info);
-
-#ifdef DEBUG2
-        uint8_t *p = (uint8_t *) info->tcp_hdr;
-        fprintf(stdout, "ip hdr length: %d\n", htons(info->ip_hdr->len));
-        fprintf(stdout, "Injecting the following packet:\n");
-        for(int i=0; i< htons(info->ip_hdr->len)-1; i++){
-            fprintf(stdout, "%02x ", p[i]);
-        }
-        fprintf(stdout, "\n");
-        fflush(stdout);
-#endif
 
     }
     return 0;
@@ -278,20 +262,14 @@ static int read_header(flow *f, struct packet_info *info){
     }
 
     if(record_hdr->type == 0x15){
-        printf("received alert %x:%d > %x:%d (%s)\n", info->ip_hdr->src.s_addr, ntohs(info->tcp_hdr->src_port), info->ip_hdr->dst.s_addr, ntohs(info->tcp_hdr->dst_port), (info->ip_hdr->src.s_addr != f->src_ip.s_addr)? "incoming":"outgoing");
-        for(int i=0; i<decrypted_len; i++){
-            printf("%02x ", decrypted_data[EVP_GCM_TLS_EXPLICIT_IV_LEN + i]);
-        }
-        printf("\n");
-        fflush(stdout);
+        DEBUG_MSG(DEBUG_UP, "received alert %x:%d > %x:%d (%s)\n", info->ip_hdr->src.s_addr, ntohs(info->tcp_hdr->src_port), info->ip_hdr->dst.s_addr, ntohs(info->tcp_hdr->dst_port), (info->ip_hdr->src.s_addr != f->src_ip.s_addr)? "incoming":"outgoing");
+        DEBUG_BYTES(DEBUG_UP, (decrypted_data + EVP_GCM_TLS_EXPLICIT_IV_LEN), decrypted_len);
 
         //TODO: re-encrypt and return
     }
 
-#ifdef DEBUG_US
-    printf("Upstream data: (%x:%d > %x:%d )\n",info->ip_hdr->src.s_addr,ntohs(info->tcp_hdr->src_port), info->ip_hdr->dst.s_addr, ntohs(info->tcp_hdr->dst_port));
-    printf("%s\n", decrypted_data+EVP_GCM_TLS_EXPLICIT_IV_LEN);
-#endif
+    DEBUG_MSG(DEBUG_UP, "Upstream data: (%x:%d > %x:%d )\n",info->ip_hdr->src.s_addr,ntohs(info->tcp_hdr->src_port), info->ip_hdr->dst.s_addr, ntohs(info->tcp_hdr->dst_port));
+    DEBUG_MSG(DEBUG_UP, "%s\n", decrypted_data+EVP_GCM_TLS_EXPLICIT_IV_LEN);
 
     /* search through decrypted data for x-ignore */
     char *header_ptr = strstr((const char *) decrypted_data+EVP_GCM_TLS_EXPLICIT_IV_LEN, "X-Slitheen");
@@ -305,19 +283,15 @@ static int read_header(flow *f, struct packet_info *info){
         return 0;
     }
 
-#ifdef DEBUG_US
-    printf("UPSTREAM: Found x-slitheen header\n");
-    fflush(stdout);
-    fprintf(stdout,"UPSTREAM Flow: %x:%d > %x:%d (%s)\n", info->ip_hdr->src.s_addr,ntohs(info->tcp_hdr->src_port), info->ip_hdr->dst.s_addr, ntohs(info->tcp_hdr->dst_port) ,(info->ip_hdr->src.s_addr != f->src_ip.s_addr)? "incoming":"outgoing");
-    fprintf(stdout, "Sequence number: %d\n", ntohs(info->tcp_hdr->sequence_num));
-#endif
+    DEBUG_MSG(DEBUG_UP, "UPSTREAM: Found x-slitheen header\n");
+    DEBUG_MSG(DEBUG_UP, "UPSTREAM Flow: %x:%d > %x:%d (%s)\n", info->ip_hdr->src.s_addr,ntohs(info->tcp_hdr->src_port), info->ip_hdr->dst.s_addr, ntohs(info->tcp_hdr->dst_port) ,(info->ip_hdr->src.s_addr != f->src_ip.s_addr)? "incoming":"outgoing");
+    DEBUG_MSG(DEBUG_UP, "Sequence number: %d\n", ntohs(info->tcp_hdr->sequence_num));
 
     header_ptr += strlen("X-Slitheen: ");
 
     if(*header_ptr == '\r' || *header_ptr == '\0'){
-#ifdef DEBUG_US
-        printf("No messages\n");
-#endif
+        DEBUG_MSG(DEBUG_UP, "No messages\n");
+
         free(decrypted_data);
         return 0;
     }
@@ -336,9 +310,8 @@ static int read_header(flow *f, struct packet_info *info){
     }
     c++;
     *c = '\0';
-#ifdef DEBUG_US
-    printf("UPSTREAM: Found %d messages\n", num_messages);
-#endif
+
+    DEBUG_MSG(DEBUG_UP, "UPSTREAM: Found %d messages\n", num_messages);
 
     for(int i=0; i< num_messages; i++){
         char *message = messages[i];
@@ -365,45 +338,23 @@ static int read_header(flow *f, struct packet_info *info){
 
         BIO_free_all(bio);
 
-#ifdef DEBUG_US
-        printf("Decoded to get %d bytes:\n", output_len);
-        for(int j=0; j< output_len; j++){
-            printf("%02x ", upstream_data[j]);
-        }
-        printf("\n");
-        fflush(stdout);
-#endif
+        DEBUG_MSG(DEBUG_UP, "Decoded to get %d bytes:\n", output_len);
+        DEBUG_BYTES(DEBUG_UP, upstream_data, output_len);
+
         p = upstream_data;
 
         if(i== 0){
             //this is the Slitheen ID
-#ifdef DEBUG_US
-            printf("Slitheen ID:");
-            for(int j=0; j< output_len; j++){
-                printf("%02x ", p[j]);
-            }
-            printf("\n");
-#endif
+            DEBUG_MSG(DEBUG_UP, "Slitheen ID:");
+            DEBUG_BYTES(DEBUG_UP, p, output_len);
 
             //find stream table or create new one
-
             client *last = clients->first;
             while(last != NULL){
                 if(!memcmp(last->slitheen_id, p, output_len)){
                     f->downstream_queue = last->downstream_queue;
                     f->client_ptr = last; 
                     break;
-#ifdef DEBUG_US
-                } else {
-                    for(int j=0; j< output_len; j++){
-                        printf("%02x ", last->slitheen_id[j]);
-                    }
-                    printf(" != ");
-                    for(int j=0; j< output_len; j++){
-                        printf("%02x ", p[j]);
-                    }
-                    printf("\n");
-#endif
                 }
                 last = last->next;
             }
@@ -411,7 +362,7 @@ static int read_header(flow *f, struct packet_info *info){
             if(f->client_ptr == NULL){
                 //create new client
 
-                printf("Creating a new client\n");
+                DEBUG_MSG(DEBUG_UP, "Creating a new client\n");
                 client *new_client = smalloc(sizeof(client));
 
                 memcpy(new_client->slitheen_id, p, output_len);
@@ -480,14 +431,13 @@ static int read_header(flow *f, struct packet_info *info){
             if(stream_pipe != -1){
                 if(stream_len ==0){
 
-                    printf("Client closed. We are here\n");
+                    DEBUG_MSG(DEBUG_UP, "Client closed. We are here\n");
                     close(stream_pipe);
                     break;
                 }
-#ifdef DEBUG_US
-                printf("Found stream id %d\n", last->stream_id);
-                printf("Writing %d bytes to pipe\n", stream_len);
-#endif
+                DEBUG_MSG(DEBUG_UP, "Found stream id %d\n", last->stream_id);
+                DEBUG_MSG(DEBUG_UP, "Writing %d bytes to pipe\n", stream_len);
+
                 int32_t bytes_sent = write(stream_pipe, p, stream_len);
                 if(bytes_sent < 0){
                     printf("Error sending bytes to stream pipe\n");
@@ -582,10 +532,7 @@ static void *proxy_covert_site(void *data){
 
     int32_t bytes_sent;
 
-#ifdef DEBUG_PROXY
-    printf("PROXY: created new thread for stream %d\n", stream_id);
-#endif
-
+    DEBUG_MSG(DEBUG_PROXY, "PROXY: created new thread for stream %d\n", stream_id);
 
     data_queue *downstream_queue = thread_data->downstream_queue;
     client *clnt = thread_data->client;
@@ -599,7 +546,7 @@ static void *proxy_covert_site(void *data){
 
     //see if it's a connect request
     if(clnt_req->cmd != 0x01){
-        printf("PROXY: error not a connect request\n");
+        DEBUG_MSG(DEBUG_PROXY, "PROXY: error not a connect request\n");
         goto err;
     }
 
@@ -654,10 +601,7 @@ static void *proxy_covert_site(void *data){
 
     int32_t error = connect (handle, (struct sockaddr *) &dest, sizeof (struct sockaddr));
 
-#ifdef DEBUG_PROXY
-    printf("PROXY: Connected to covert site for stream %d\n", stream_id);
-#endif
-    fflush(stdout);
+    DEBUG_MSG(DEBUG_PROXY, "PROXY: Connected to covert site for stream %d\n", stream_id);
 
     if(error <0){
         goto err;
@@ -667,14 +611,9 @@ static void *proxy_covert_site(void *data){
 
     //see if there were extra upstream bytes
     if(data_len > 0){
-#ifdef DEBUG_PROXY
-        printf("Data len is %d\n", data_len);
-        printf("Upstream bytes: ");
-        for(int i=0; i< data_len; i++){
-            printf("%02x ", p[i]);
-        }
-        printf("\n");
-#endif
+        DEBUG_MSG(DEBUG_PROXY, "Data len is %d\n", data_len);
+        DEBUG_BYTES(DEBUG_PROXY, p, data_len);
+
         bytes_sent = send(handle, p,
                 data_len, 0);
         if( bytes_sent <= 0){
@@ -710,27 +649,22 @@ static void *proxy_covert_site(void *data){
             int32_t bytes_read = read(thread_data->pipefd, buffer, buffer_len);
 
             if(bytes_read > 0){
-#ifdef DEBUG_PROXY
-                printf("PROXY (id %d): read %d bytes from pipe\n", stream_id, bytes_read);
-                for(int i=0; i< bytes_read; i++){
-                    printf("%02x ", buffer[i]);
-                }
-                printf("\n");
-                printf("%s\n", buffer);
-#endif
+                DEBUG_MSG(DEBUG_PROXY, "PROXY (id %d): read %d bytes from pipe\n", stream_id, bytes_read);
+                DEBUG_BYTES(DEBUG_PROXY, buffer, bytes_read);
+
                 bytes_sent = send(handle, buffer,
                         bytes_read, 0);
                 if( bytes_sent <= 0){
-                    printf("Error sending bytes to covert site (stream %d)\n", stream_id);
+                    DEBUG_MSG(DEBUG_PROXY, "Error sending bytes to covert site (stream %d)\n", stream_id);
                     break;
                 } else if (bytes_sent < bytes_read){
-                    printf("Sent less bytes than read to covert site (stream %d)\n", stream_id);
+                    DEBUG_MSG(DEBUG_PROXY, "Sent less bytes than read to covert site (stream %d)\n", stream_id);
                     break;
                 }
             } else {
                 //Client closed the connection, we can delete this stream from the downstream queue
 
-                printf("Deleting stream %d from the downstream queue\n", stream_id);
+                DEBUG_MSG(DEBUG_PROXY, "Deleting stream %d from the downstream queue\n", stream_id);
 
                 sem_wait(&clnt->queue_lock);
 
@@ -739,8 +673,6 @@ static void *proxy_covert_site(void *data){
                 while(last != NULL){
                     if(last->stream_id == stream_id){
                         //remove block from queue
-                        printf("removing a block!\n");
-                        fflush(stdout);
                         if(last == downstream_queue->first_block){
                             downstream_queue->first_block = last->next;
                             free(last->data);
@@ -760,8 +692,7 @@ static void *proxy_covert_site(void *data){
                 }
 
                 sem_post(&clnt->queue_lock);
-                printf("Finished deleting from downstream queue\n");
-                fflush(stdout);
+                DEBUG_MSG(DEBUG_PROXY, "Finished deleting from downstream queue\n");
                 break;
             }
 
@@ -774,15 +705,8 @@ static void *proxy_covert_site(void *data){
             if(bytes_read > 0){
                 uint8_t *new_data = smalloc(bytes_read);
                 memcpy(new_data, buffer, bytes_read);
-#ifdef DEBUG_PROXY
-                printf("PROXY (id %d): read %d bytes from censored site\n",stream_id, bytes_read);
-                for(int i=0; i< bytes_read; i++){
-                    printf("%02x ", buffer[i]);
-                }
-                printf("\n");
-
-
-#endif
+                DEBUG_MSG(DEBUG_PROXY, "PROXY (id %d): read %d bytes from censored site\n",stream_id, bytes_read);
+                DEBUG_BYTES(DEBUG_PROXY, buffer, bytes_read);
 
                 //make a new queue block
                 queue_block *new_block = smalloc(sizeof(queue_block));
@@ -803,7 +727,7 @@ static void *proxy_covert_site(void *data){
                 }
                 sem_post(&clnt->queue_lock);
             } else {
-                printf("PROXY (id %d): read %d bytes from censored site\n",stream_id, bytes_read);
+                DEBUG_MSG(DEBUG_PROXY, "PROXY (id %d): read %d bytes from censored site\n",stream_id, bytes_read);
 
                 break;
             }
@@ -811,7 +735,7 @@ static void *proxy_covert_site(void *data){
         }
     }
 
-    printf("Closing connection for stream %d\n", stream_id);
+    DEBUG_MSG(DEBUG_PROXY, "Closing connection for stream %d\n", stream_id);
     //remove self from list 
     stream *last = streams->first;
     stream *prev = last;
@@ -930,14 +854,9 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
         } else { //new record
 
             if(remaining_packet_len < RECORD_HEADER_LEN){
-#ifdef DEBUG
-                printf("partial record header: \n");
-                for(int i= 0; i< remaining_packet_len; i++){
-                    printf("%02x ", p[i]);
-                }
-                printf("\n");
-                fflush(stdout);
-#endif
+                DEBUG_MSG(DEBUG_DOWN, "partial record header: \n");
+                DEBUG_BYTES(DEBUG_DOWN, p, remaining_packet_len);
+
                 f->partial_record_header = smalloc(RECORD_HEADER_LEN);
                 memcpy(f->partial_record_header, p, remaining_packet_len);
                 f->partial_record_header_len = remaining_packet_len;
@@ -956,27 +875,11 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
             }
             record_len = RECORD_LEN(record_hdr);
 
-#ifdef DEBUG_DOWN
-            fprintf(stdout,"Flow: %x > %x (%s)\n", info->ip_hdr->src.s_addr, info->ip_hdr->dst.s_addr, (info->ip_hdr->src.s_addr != f->src_ip.s_addr)? "incoming":"outgoing");
-            fprintf(stdout,"ID number: %u\n", htonl(info->ip_hdr->id));
-            fprintf(stdout,"Sequence number: %u\n", htonl(info->tcp_hdr->sequence_num));
-            fprintf(stdout,"Acknowledgement number: %u\n", htonl(info->tcp_hdr->ack_num));
-            fprintf(stdout, "Record:\n");
-            for(int i=0; i< RECORD_HEADER_LEN; i++){
-                printf("%02x ", ((uint8_t *) record_hdr)[i]);
-            }
-            printf("\n");
-
-            printf("Text: ");
-            printf("%s", ((uint8_t *) record_hdr) + RECORD_HEADER_LEN);
-            printf("\n");
-
-            fflush(stdout);
-#endif
+            DEBUG_MSG(DEBUG_DOWN, "Record:\n");
+            DEBUG_BYTES(DEBUG_DOWN, ((uint8_t *) record_hdr), RECORD_HEADER_LEN);
 
             p += (RECORD_HEADER_LEN - f->partial_record_header_len);
             remaining_packet_len -= (RECORD_HEADER_LEN - f->partial_record_header_len);
-
 
 
             if(record_len > remaining_packet_len){
@@ -997,13 +900,8 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
             memcpy(record_ptr, p, remaining_record_len); //points to the beginning of record data
         }
 
-#ifdef DEBUG_DOWN
-        printf("Received bytes (len %d)\n", remaining_record_len);
-        for(int i=0; i< remaining_record_len; i++){
-            printf("%02x ", p[i]);
-        }
-        printf("\n");
-#endif
+        DEBUG_MSG(DEBUG_DOWN, "Received bytes (len %d)\n", remaining_record_len);
+        DEBUG_BYTES(DEBUG_DOWN, p, remaining_record_len);
 
         record = p; // save location of original data
         p = record_ptr;
@@ -1015,13 +913,9 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
             //if we now have all of the record, decrypt full thing and check tag
             if(f->partial_record_len == f->partial_record_total_len){
 
-#ifdef DEBUG_DOWN
-                printf("Received full partial record (len=%d):\n", f->partial_record_len);
-                for(int i=0; i< f->partial_record_len; i ++){
-                    printf("%02x", record_ptr[i]);
-                }
-                printf("\n");
-#endif
+                DEBUG_MSG(DEBUG_DOWN, "Received full partial record (len=%d):\n", f->partial_record_len);
+                DEBUG_BYTES(DEBUG_DOWN, record_ptr, f->partial_record_len);
+
                 n = encrypt(f, record_ptr, record_ptr, f->partial_record_len, 1, 0x17, 0, 0);
                 if(n <= 0){
                     free(f->partial_record_dec);
@@ -1087,30 +981,17 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
         }
         changed = 1;
 
-#ifdef DEBUG_DOWN
-        printf("Decrypted new record\n");
-        printf("Bytes:\n");
-        for(int i=0; i< n; i++){
-            printf("%02x ", record_ptr[EVP_GCM_TLS_EXPLICIT_IV_LEN+i]);
-        }
-        printf("\n");
-        printf("Text:\n");
-        printf("%s\n", record_ptr+EVP_GCM_TLS_EXPLICIT_IV_LEN);
-
-        printf("Parseable text:\n");
-        printf("%s\n", p);
-        fflush(stdout);
-
-#endif
+        DEBUG_MSG(DEBUG_DOWN, "Decrypted new record:\n");
+        DEBUG_BYTES(DEBUG_DOWN, (record_ptr + EVP_GCM_TLS_EXPLICIT_IV_LEN), n);
+        DEBUG_MSG(DEBUG_DOWN, "Text:\n%s\n", record_ptr+EVP_GCM_TLS_EXPLICIT_IV_LEN);
+        DEBUG_MSG(DEBUG_DOWN, "Parseable text:\n%s\n", p);
 
         char *len_ptr, *needle;
 
         while(remaining_record_len > 0){
 
-#ifdef RESOURCE_DEBUG
-            printf("Current state (flow %p): %x\n", f, f->httpstate);
-            printf("Remaining record len: %d\n", remaining_record_len);
-#endif
+            DEBUG_MSG(DEBUG_DOWN, "Current state (flow %p): %x\n", f, f->httpstate);
+            DEBUG_MSG(DEBUG_DOWN, "Remaining record len: %d\n", remaining_record_len);
 
             switch(f->httpstate){
 
@@ -1126,9 +1007,8 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
                             c[0] = ' ';
                             c++;
                         }
-#ifdef RESOURCE_DEBUG
-                        printf("Found and replaced leaf header\n");
-#endif
+                        DEBUG_MSG(DEBUG_DOWN, "Found and replaced leaf header\n");
+
                     } else {
                         //check for video
                         len_ptr = strstr((const char *) p, "Content-Type: video/webm");
@@ -1159,14 +1039,11 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
                             f->httpstate = PARSE_HEADER;
                             remaining_record_len -= (((uint8_t *)len_ptr - p) + 4);
                             p = (uint8_t *) len_ptr + 4;
-#ifdef RESOURCE_DEBUG
-                            printf("Found a 304 not modified, waiting for next header\n");
-                            printf("Remaining record len: %d\n", remaining_record_len);
-#endif
+
+                            DEBUG_MSG(DEBUG_DOWN, "Found a 304 not modified, waiting for next header\n");
+                            DEBUG_MSG(DEBUG_DOWN, "Remaining record len: %d\n", remaining_record_len);
                         } else {
-#ifdef RESOURCE_DEBUG
-                            printf("Missing end of header. Sending to FORFEIT_REST (%p)\n", f);
-#endif
+                            DEBUG_MSG(DEBUG_DOWN, "Missing end of header. Sending to FORFEIT_REST (%p)\n", f);
                             f->httpstate = FORFEIT_REST;
                         }
 
@@ -1203,29 +1080,28 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
                         len_ptr = strstr((const char *) p, "Content-Length:");
                         if(len_ptr != NULL){
                             len_ptr += 15;
-                            f->remaining_response_len = strtol((const char *) len_ptr, NULL, 10);
-#ifdef RESOURCE_DEBUG
-                            printf("content-length: %d\n", f->remaining_response_len);
-#endif
+                            f->remaining_response_len =
+                                strtol((const char *) len_ptr, NULL, 10);
+
+                            DEBUG_MSG(DEBUG_DOWN, "content-length: %d\n",
+                                    f->remaining_response_len);
                             len_ptr = strstr((const char *) p, "\r\n\r\n");
                             if(len_ptr != NULL){
                                 f->httpstate = MID_CONTENT;
                                 remaining_record_len -= (((uint8_t *)len_ptr - p) + 4);
                                 p = (uint8_t *) len_ptr + 4;
-#ifdef RESOURCE_DEBUG
-                                printf("Remaining record len: %d\n", remaining_record_len);
-#endif
+
+                                DEBUG_MSG(DEBUG_DOWN, "Remaining record len: %d\n",
+                                        remaining_record_len);
                             } else {
                                 remaining_record_len = 0;
-#ifdef RESOURCE_DEBUG
-                                printf("Missing end of header. Sending to FORFEIT_REST (%p)\n", f);
-#endif
+                                DEBUG_MSG(DEBUG_DOWN, "Missing end of header. Sending to FORFEIT_REST (%p)\n", f);
+
                                 f->httpstate = FORFEIT_REST;
                             }
                         } else {
-#ifdef RESOURCE_DEBUG
-                            printf("No content length of transfer encoding field, sending to FORFEIT_REST (%p)\n", f);
-#endif
+                            DEBUG_MSG(DEBUG_DOWN, "No content length of transfer encoding field, sending to FORFEIT_REST (%p)\n", f);
+
                             f->httpstate = FORFEIT_REST;
                             remaining_record_len = 0;
                         }
@@ -1239,13 +1115,8 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
                         if(f->replace_response){
                             fill_with_downstream(f, p, remaining_record_len);
 
-#ifdef DEBUG_DOWN
-                            printf("Replaced with:\n");
-                            for(int i=0; i< remaining_record_len; i++){
-                                printf("%02x ", p[i]);
-                            }
-                            printf("\n");
-#endif
+                            DEBUG_MSG(DEBUG_DOWN, "Replaced leaf with:\n");
+                            DEBUG_BYTES(DEBUG_DOWN, p, remaining_record_len);
                         }
 
                         f->remaining_response_len -= remaining_record_len;
@@ -1257,20 +1128,13 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
                         if(f->replace_response){
                             fill_with_downstream(f, p, remaining_record_len);
 
-#ifdef DEBUG_DOWN
-                            printf("Replaced with:\n");
-                            for(int i=0; i< remaining_record_len; i++){
-                                printf("%02x ", p[i]);
-                            }
-                            printf("\n");
-#endif
+                            DEBUG_MSG(DEBUG_DOWN, "Replaced leaf with:\n");
+                            DEBUG_BYTES(DEBUG_DOWN, p, remaining_record_len);
                         }
                         remaining_record_len -= f->remaining_response_len;
                         p += f->remaining_response_len;
 
-#ifdef DEBUG_DOWN
-                        printf("Change state %x --> PARSE_HEADER (%p)\n", f->httpstate, f);
-#endif
+                        DEBUG_MSG(DEBUG_DOWN, "Change state %x --> PARSE_HEADER (%p)\n", f->httpstate, f);
                         f->httpstate = PARSE_HEADER;
                         f->remaining_response_len = 0;
                     }
@@ -1279,9 +1143,7 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
                 case BEGIN_CHUNK:
                     {
                         int32_t chunk_size = strtol((const char *) p, NULL, 16);
-#ifdef RESOURCE_DEBUG
-                        printf("BEGIN_CHUNK: chunk size is %d\n", chunk_size);
-#endif
+                        DEBUG_MSG(DEBUG_DOWN, "BEGIN_CHUNK: chunk size is %d\n", chunk_size);
                         if(chunk_size == 0){
                             f->httpstate = END_BODY;
                         } else {
@@ -1294,9 +1156,7 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
                             p = (uint8_t *) needle + 2;
                         } else {
                             remaining_record_len = 0;
-#ifdef RESOURCE_DEBUG
-                            printf("Error parsing in BEGIN_CHUNK, FORFEIT (%p)\n", f);
-#endif
+                            DEBUG_MSG(DEBUG_DOWN, "Error parsing in BEGIN_CHUNK, FORFEIT (%p)\n", f);
                             f->httpstate = FORFEIT_REST;
                         }
                     }
@@ -1307,13 +1167,8 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
                         if(f->replace_response){
                             fill_with_downstream(f, p, remaining_record_len);
 
-#ifdef DEBUG_DOWN
-                            printf("Replaced with:\n");
-                            for(int i=0; i< remaining_record_len; i++){
-                                printf("%02x ", p[i]);
-                            }
-                            printf("\n");
-#endif
+                            DEBUG_MSG(DEBUG_DOWN, "Replaced leaf with:\n");
+                            DEBUG_BYTES(DEBUG_DOWN, p, remaining_record_len);
                         }
                         f->remaining_response_len -= remaining_record_len;
                         p += remaining_record_len;
@@ -1323,13 +1178,8 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
                         if(f->replace_response){
                             fill_with_downstream(f, p, f->remaining_response_len);
 
-#ifdef DEBUG_DOWN
-                            printf("Replaced with:\n");
-                            for(int i=0; i< f->remaining_response_len; i++){
-                                printf("%02x ", p[i]);
-                            }
-                            printf("\n");
-#endif
+                            DEBUG_MSG(DEBUG_DOWN, "Replaced leaf with:\n");
+                            DEBUG_BYTES(DEBUG_DOWN, p, f->remaining_response_len);
                         }
                         remaining_record_len -= f->remaining_response_len;
                         p += f->remaining_response_len;
@@ -1377,19 +1227,11 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
             }
         }
 
-#ifdef DEBUG_DOWN
         if(changed && f->replace_response){
-            printf("Resource is now\n");
-            printf("Bytes:\n");
-            for(int i=0; i< n; i++){
-                printf("%02x ", record_ptr[EVP_GCM_TLS_EXPLICIT_IV_LEN+i]);
-            }
-            printf("\n");
-            printf("Text:\n");
-            printf("%s\n", record_ptr+EVP_GCM_TLS_EXPLICIT_IV_LEN);
-            fflush(stdout);
+            DEBUG_MSG(DEBUG_DOWN, "Resource is now:\n");
+            DEBUG_BYTES(DEBUG_DOWN, (record_ptr + EVP_GCM_TLS_EXPLICIT_IV_LEN), n);
+            DEBUG_MSG(DEBUG_DOWN, "Text:\n%s\n", record_ptr+EVP_GCM_TLS_EXPLICIT_IV_LEN);
         }
-#endif
 
         if(partial){
             //partially encrypting data
@@ -1405,26 +1247,18 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
                 free(record_ptr);
                 return 0;
             }
-#ifdef DEBUG_DOWN
-            printf("Partially encrypted bytes:\n");
-            for(int i=0; i < n + EVP_GCM_TLS_EXPLICIT_IV_LEN; i++){
-                printf("%02x ", record_ptr[i]);
-            }
-            printf("\n");
-#endif
+
+            DEBUG_MSG(DEBUG_DOWN, "Partially encrypted bytes:\n");
+            DEBUG_BYTES(DEBUG_DOWN, record_ptr, n + EVP_GCM_TLS_EXPLICIT_IV_LEN);
 
             //if we received all of the partial packet, add tag and release it
             if (f->partial_record_len == f->partial_record_total_len){
 
                 //compute tag
-#ifdef DEBUG_DOWN
                 partial_aes_gcm_tls_tag(f, record_ptr + n + EVP_GCM_TLS_EXPLICIT_IV_LEN, n);
-                printf("tag: (%d bytes)\n", EVP_GCM_TLS_TAG_LEN);
-                for(int i=0; i< EVP_GCM_TLS_TAG_LEN; i++){
-                    printf("%02x ", record_ptr[n + EVP_GCM_TLS_EXPLICIT_IV_LEN+i]);
-                }
-                printf("\n");
-#endif
+                DEBUG_MSG(DEBUG_DOWN, "finished partial tag: (%d bytes)\n", EVP_GCM_TLS_TAG_LEN);
+                DEBUG_BYTES(DEBUG_DOWN, (record_ptr + n + EVP_GCM_TLS_EXPLICIT_IV_LEN),
+                        EVP_GCM_TLS_TAG_LEN);
 
                 if(false_tag){//tag on original record was incorrect O.o add incorrect tag
 
@@ -1465,18 +1299,6 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
             p = record_ptr;
         }
 
-#ifdef DEBUG_DOWN2
-        fprintf(stdout,"Flow: %x:%d > %x:%d (%s)\n", info->ip_hdr->src.s_addr, ntohs(info->tcp_hdr->src_port), info->ip_hdr->dst.s_addr, ntohs(info->tcp_hdr->dst_port), (info->ip_hdr->src.s_addr != f->src_ip.s_addr)? "incoming":"outgoing");
-        fprintf(stdout,"ID number: %u\n", htonl(info->ip_hdr->id));
-        fprintf(stdout,"Sequence number: %u\n", htonl(info->tcp_hdr->sequence_num));
-        fprintf(stdout,"Acknowledgement number: %u\n", htonl(info->tcp_hdr->ack_num));
-        printf("New ciphertext bytes:\n");
-        for(int i=0; i< n; i++){
-            printf("%02x ", record_ptr[i]);
-        }
-        printf("\n");
-#endif
-
         //Copy changed temporary data to original packet
         memcpy(record, p, record_len);
 
@@ -1509,7 +1331,6 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
  */
 static int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 
-    printf("In fill_with_ds\n");
     uint8_t *p = data;
     int32_t remaining = length;
     struct slitheen_header *sl_hdr;
@@ -1537,12 +1358,6 @@ static int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
         queue_block *first_block = downstream_queue->first_block;
         int32_t block_length = first_block->len;
         int32_t offset = first_block->offset;
-
-#ifdef DEBUG
-        printf("Censored queue is at %p.\n", first_block);
-        printf("This block has %d bytes left\n", block_length - offset);
-        printf("We need %d bytes\n", remaining - SLITHEEN_HEADER_LEN);
-#endif
 
         uint8_t *encrypted_data = p;
         sl_hdr = (struct slitheen_header *) p;
@@ -1609,18 +1424,10 @@ static int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
         super_encrypt(client_ptr, encrypted_data, data_len + padding);
 
 
-#ifdef DEBUG_DOWN
-        printf("DWNSTRM: slitheen header: ");
-        for(int i=0; i< SLITHEEN_HEADER_LEN; i++){
-            printf("%02x ",((uint8_t *) sl_hdr)[i]);
-        }
-        printf("\n");
-        printf("Sending %d downstream bytes:", data_len);
-        for(int i=0; i< data_len+16+16; i++){
-            printf("%02x ", ((uint8_t *) sl_hdr)[i+SLITHEEN_HEADER_LEN]);
-        }
-        printf("\n");
-#endif
+        DEBUG_MSG(DEBUG_DOWN, "DWNSTRM: slitheen header: ");
+        DEBUG_BYTES(DEBUG_DOWN, ((uint8_t *) sl_hdr), SLITHEEN_HEADER_LEN);
+        DEBUG_MSG(DEBUG_DOWN, "Sending %d downstream bytes:", data_len);
+        DEBUG_BYTES(DEBUG_DOWN, (((uint8_t *) sl_hdr) + SLITHEEN_HEADER_LEN), data_len+16+16);
     }
     //now, if we need more data, fill with garbage
     if(remaining >= SLITHEEN_HEADER_LEN ){
@@ -1633,13 +1440,8 @@ static int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
         sl_hdr->garbage = htons(remaining);
         sl_hdr->zeros = 0x0000;
 
-#ifdef DEBUG_DOWN
-        printf("DWNSTRM: slitheen header: ");
-        for(int i=0; i< SLITHEEN_HEADER_LEN; i++){
-            printf("%02x ", p[i]);
-        }
-        printf("\n");
-#endif
+        DEBUG_MSG(DEBUG_DOWN, "DWNSTRM: slitheen header: ");
+        DEBUG_BYTES(DEBUG_DOWN, p, SLITHEEN_HEADER_LEN);
 
         //encrypt slitheen header
         super_encrypt(client_ptr, p, 0);

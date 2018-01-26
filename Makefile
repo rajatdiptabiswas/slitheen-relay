@@ -1,4 +1,4 @@
-CFLAGS=-g -ggdb -Wall -std=gnu99 -DDEBUG_DOWN -DDEBUG_PROXY -DRESOURCE_DEBUG
+CFLAGS=-g -ggdb -Wall -std=gnu99
 
 TARGETS=slitheen
 
