@@ -1585,7 +1585,7 @@ end:
  *  Output:
  *  	none
  */
-void check_handshake(struct packet_info *info){
+int check_handshake(struct packet_info *info){
 
     FILE *fp;
     int res, code;
@@ -1599,6 +1599,8 @@ void check_handshake(struct packet_info *info){
     handshake_hdr = (struct handshake_header*) p;
 
     code = handshake_hdr->type;
+
+    res = 1;
 
     if (code == 0x01){
         p += CLIENT_HELLO_HEADER_LEN;
@@ -1640,7 +1642,7 @@ void check_handshake(struct packet_info *info){
                 flow_ptr = add_flow(info);
                 if(flow_ptr == NULL){
                     fprintf(stderr, "Memory failure\n");
-                    return;
+                    return 0;
                 }
 
                 for(int i=0; i<16; i++){
@@ -1671,6 +1673,8 @@ void check_handshake(struct packet_info *info){
 
         }
     }
+
+    return !res;
 }
 
 /* Check the given tag with the given context and private key.  Return 0

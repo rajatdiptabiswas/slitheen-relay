@@ -65,7 +65,7 @@ int mark_finished_hash(flow *f, uint8_t *hs);
 int init_ciphers(flow *f);
 void generate_client_super_keys(uint8_t *secret, client *c);
 int super_encrypt(client *c, uint8_t *data, uint32_t len);
-void check_handshake(struct packet_info *info);
+int check_handshake(struct packet_info *info);
 
 int check_tag(byte key[16], const byte privkey[PTWIST_BYTES],
         const byte tag[PTWIST_TAG_BYTES], const byte *context,
