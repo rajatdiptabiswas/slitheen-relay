@@ -57,6 +57,34 @@
 #include "crypto.h"
 #include "util.h"
 
+/* Data structures */
+struct proxy_thread_data {
+    uint8_t *initial_data;
+    uint16_t initial_len;
+    uint16_t stream_id;
+    int32_t pipefd;
+    stream_table *streams;
+    data_queue *downstream_queue;
+    client *client;
+};
+
+struct socks_req {
+    uint8_t version;
+    uint8_t cmd;
+    uint8_t rsvd;
+    uint8_t addr_type;
+};
+
+struct __attribute__((__packed__)) sl_up_hdr {
+    uint16_t stream_id;
+    uint16_t len;
+};
+
+static int process_downstream(flow *f, int32_t offset, struct packet_info *info);
+static int read_header(flow *f, struct packet_info *info);
+static int fill_with_downstream(flow *f, uint8_t *data, int32_t length);
+static void *proxy_covert_site(void *data);
+
 /** Called when a TLS application record is received for a
  *  tagged flow. Upstream packets will be checked for covert
  *  requests to censored sites, downstream packets will be
@@ -133,7 +161,7 @@ int replace_packet(flow *f, struct packet_info *info){
  *  Ouput:
  *  	0 on success, 1 on failure
  */
-int read_header(flow *f, struct packet_info *info){
+static int read_header(flow *f, struct packet_info *info){
     uint8_t *p = info->app_data;
 
     if (info->tcp_hdr == NULL){
@@ -536,7 +564,7 @@ int read_header(flow *f, struct packet_info *info){
  *  	- the downstream queue for the client
  *
  */
-void *proxy_covert_site(void *data){
+static void *proxy_covert_site(void *data){
 
     struct proxy_thread_data *thread_data =
         (struct proxy_thread_data *) data;
@@ -852,7 +880,7 @@ err:
  *  Output:
  *  	Returns 0 on sucess 
  */
-int process_downstream(flow *f, int32_t offset, struct packet_info *info){
+static int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 
     uint8_t *p = info->app_data;
     uint32_t remaining_packet_len = info->app_data_len;
@@ -1472,7 +1500,7 @@ int process_downstream(flow *f, int32_t offset, struct packet_info *info){
  *  	length: The length of the downstream data required
  *
  */
-int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
+static int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 
     printf("In fill_with_ds\n");
     uint8_t *p = data;

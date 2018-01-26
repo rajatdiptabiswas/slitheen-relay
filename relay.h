@@ -31,16 +31,6 @@
 #include "flow.h"
 #include <stdint.h>
 
-struct proxy_thread_data {
-    uint8_t *initial_data;
-    uint16_t initial_len;
-    uint16_t stream_id;
-    int32_t pipefd;
-    stream_table *streams;
-    data_queue *downstream_queue;
-    client *client;
-};
-
 typedef struct client_st {
     uint8_t slitheen_id[SLITHEEN_ID_LEN];
     stream_table *streams;
@@ -50,9 +40,6 @@ typedef struct client_st {
     struct client_st *next;
     uint8_t *header_key;
     uint8_t *body_key;
-    //uint8_t *mac_key
-    //EVP_CIPHER_CTX *header_ctx;
-    //EVP_CIPHER_CTX *body_ctx;
     EVP_MD_CTX *mac_ctx;
 } client;
 
@@ -62,26 +49,8 @@ typedef struct client_table_st {
 
 extern client_table *clients;
 
-struct socks_req {
-    uint8_t version;
-    uint8_t cmd;
-    uint8_t rsvd;
-    uint8_t addr_type;
-};
-
-struct __attribute__((__packed__)) sl_up_hdr {
-    uint16_t stream_id;
-    uint16_t len;
-};
-
 int replace_packet(flow *f, struct packet_info *info);
-int process_downstream(flow *f, int32_t offset, struct packet_info *info);
-int read_header(flow *f, struct packet_info *info);
-uint32_t get_response_length(uint8_t *response);
-int fill_with_downstream(flow *f, uint8_t *data, int32_t length);
 uint16_t tcp_checksum(struct packet_info *info);
-
-void *proxy_covert_site(void *data);
 
 #define BEGIN_HEADER 0x10
 #define PARSE_HEADER 0x20

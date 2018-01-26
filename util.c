@@ -30,11 +30,20 @@
  * work.
  */
 
-
-
 #include <stdio.h>
 #include <stdlib.h>
 #include "util.h"
+
+//Standard queue data structure
+typedef struct element_st {
+    void *data;
+    struct element_st *next;
+} element;
+
+typedef struct queue_st {
+    element *first;
+    element *last;
+} queue;
 
 //malloc macro that exits on error
 void *smalloc(size_t size){

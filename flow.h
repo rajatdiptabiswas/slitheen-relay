@@ -41,19 +41,6 @@
 #define MAX_FLOWS 10
 #define SLITHEEN_ID_LEN 28
 
-#define TLS_HELLO_REQ 0x00
-#define TLS_CLNT_HELLO 0x01
-#define TLS_SERV_HELLO 0x02
-#define TLS_NEW_SESS 0x04
-#define TLS_CERT 0x0b
-#define TLS_SRVR_KEYEX 0x0c
-#define TLS_CERT_REQ 0x0d
-#define TLS_SRVR_HELLO_DONE 0x0e
-#define TLS_CERT_VERIFY 0x0f
-#define TLS_CLNT_KEYEX 0x10
-#define TLS_FINISHED 0x14
-#define TLS_CERT_STATUS 0x16
-
 struct client_st;
 typedef struct client_st client;
 
@@ -75,12 +62,7 @@ typedef struct packet_st{
     struct packet_st *next;
 } packet;
 
-typedef struct packet_chain_st {
-    packet *first_packet;
-    uint32_t expected_seq_num;
-    uint32_t record_len;
-    uint32_t remaining_record_len;
-} packet_chain;
+typedef struct packet_chain_st packet_chain;
 
 typedef struct queue_block_st{
     int32_t len;
@@ -120,11 +102,6 @@ typedef struct session_st {
     uint32_t session_ticket_len;
     uint8_t *session_ticket;
 } session;
-
-typedef struct session_cache_st {
-    session *first_session;
-    uint32_t length;
-} session_cache;
 
 typedef struct flow_st {
     sem_t flow_lock;
@@ -218,31 +195,12 @@ typedef struct flow_st {
 
 } flow;
 
-typedef struct flow_entry_st {
-    flow *f;
-    struct flow_entry_st *next;
-} flow_entry;
-
-typedef struct flow_table_st {
-    flow_entry *first_entry;
-    int len;
-} flow_table;
-
-
 int init_tables(void);
 flow *add_flow(struct packet_info *info);
-int update_flow(flow *f, uint8_t *record, uint8_t incoming);
 int remove_flow(flow *f);
 flow *check_flow(struct packet_info *info);
-flow *get_flow(int index);
 
 int init_session_cache (void);
-int verify_session_id(flow *f, uint8_t *hs);
-int check_extensions(flow *f, uint8_t *hs, uint32_t len);
-int verify_extensions(flow *f, uint8_t *hs, uint32_t len);
-int save_session_id(flow *f, uint8_t *hs);
-int save_session_ticket(flow *f, uint8_t *hs, uint32_t len);
-
 int add_packet(flow *f, struct packet_info *info);
 
 #endif /* FLOW_H */

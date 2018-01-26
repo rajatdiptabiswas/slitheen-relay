@@ -37,6 +37,9 @@
 static pthread_mutex_t *crypto_locks;
 static long *lock_count;
 
+void pthreads_thread_id(CRYPTO_THREADID *tid);
+void pthreads_locking_callback(int mode, int type, const char *file, int line);
+
 void init_crypto_locks(void){
 
     crypto_locks = OPENSSL_malloc(CRYPTO_num_locks() * sizeof(pthread_mutex_t));

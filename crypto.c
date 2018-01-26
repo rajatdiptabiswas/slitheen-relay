@@ -179,6 +179,33 @@
 #define NID_brainpoolP512r1             933
 #define NID_X25519             1034
 
+#define SLITHEEN_KEYGEN_CONST "SLITHEEN_KEYGEN"
+#define SLITHEEN_KEYGEN_CONST_SIZE 15
+#define SLITHEEN_FINISHED_INPUT_CONST "SLITHEEN_FINISHED"
+#define SLITHEEN_FINISHED_INPUT_CONST_SIZE 17
+#define SLITHEEN_SUPER_SECRET_SIZE 16 //extracted from slitheen ID tag
+#define SLITHEEN_SUPER_CONST "SLITHEEN_SUPER_ENCRYPT"
+#define SLITHEEN_SUPER_CONST_SIZE 22
+
+#define PRE_MASTER_MAX_LEN BUFSIZ
+#define TLS_MD_EXTENDED_MASTER_SECRET_CONST "extended master secret"
+#define TLS_MD_EXTENDED_MASTER_SECRET_CONST_SIZE 22
+
+#define n2s(c,s)        ((s=(((unsigned int)(c[0]))<< 8)| \
+            (((unsigned int)(c[1]))    )),c+=2)
+
+
+/* Curve 25519 */
+#define X25519_KEYLEN        32
+#define X25519_BITS          253
+#define X25519_SECURITY_BITS 128
+
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+typedef struct {
+    unsigned char pubkey[X25519_KEYLEN];
+    unsigned char *privkey;
+} X25519_KEY;
+#endif
 
 static int nid_list[] = {
     NID_sect163k1,              /* sect163k1 (1) */
@@ -216,7 +243,16 @@ static int nid_list[] = {
 #endif
 };
 
+static int tls_PRF(flow *f, uint8_t *secret, int32_t secret_len,
+        uint8_t *seed1, int32_t seed1_len,
+        uint8_t *seed2, int32_t seed2_len,
+        uint8_t *seed3, int32_t seed3_len,
+        uint8_t *seed4, int32_t seed4_len,
+        uint8_t *output, int32_t output_len);
 
+static int check_tag(byte key[16], const byte privkey[PTWIST_BYTES],
+        const byte tag[PTWIST_TAG_BYTES], const byte *context,
+        size_t context_len);
 
 /** Updates the hash of all TLS handshake messages up to and
  * including the ClientKeyExchange. This hash is eventually used
@@ -527,31 +563,6 @@ int encrypt(flow *f, uint8_t *input, uint8_t *output, int32_t len, int32_t incom
 }
 
 
-/** Increases the GCM counter when we don't decrypt a record to produce the correct tag in the next
- *  re-encrypted record
- *
- * 	Inputs:
- * 		f: the tagged flow
- * 		incoming: the direction of the flow
- *
- * 	Output:
- * 		0 on success, 1 on failure
- */
-int fake_encrypt(flow *f, int32_t incoming){
-
-    uint8_t *seq = (incoming) ? f->read_seq : f->write_seq;
-
-    for(int i=7; i>=0; i--){
-        ++seq[i];
-        if(seq[i] != 0)
-            break;
-    }
-
-    return 0;
-
-}
-
-
 /** Mark the hash in a downstream TLS finished message
  *
  * Changes the finished hash to
@@ -676,7 +687,7 @@ int compute_master_secret(flow *f){
         printf("\n");
 #endif
 
-        PRF(f, f->key, 16,
+        tls_PRF(f, f->key, 16,
                 (uint8_t *) SLITHEEN_KEYGEN_CONST, SLITHEEN_KEYGEN_CONST_SIZE,
                 NULL, 0, NULL, 0, NULL, 0,
                 buf, bytes);
@@ -742,7 +753,7 @@ int compute_master_secret(flow *f){
                 goto err;
             }
 
-            PRF(f, f->key, 16, (uint8_t *) SLITHEEN_KEYGEN_CONST, SLITHEEN_KEYGEN_CONST_SIZE,
+            tls_PRF(f, f->key, 16, (uint8_t *) SLITHEEN_KEYGEN_CONST, SLITHEEN_KEYGEN_CONST_SIZE,
                     NULL, 0, NULL, 0, NULL, 0, xkey->privkey, X25519_KEYLEN);
 
 #ifdef DEBUG_HS
@@ -817,7 +828,7 @@ int compute_master_secret(flow *f){
                 goto err;
             }
 
-            PRF(f, f->key, 16, (uint8_t *) SLITHEEN_KEYGEN_CONST, SLITHEEN_KEYGEN_CONST_SIZE,
+            tls_PRF(f, f->key, 16, (uint8_t *) SLITHEEN_KEYGEN_CONST, SLITHEEN_KEYGEN_CONST_SIZE,
                     NULL, 0, NULL, 0, NULL, 0, buf, bytes);
 
 #ifdef DEBUG_HS
@@ -884,7 +895,7 @@ int compute_master_secret(flow *f){
         free(md_ctx);
 #endif
 
-        PRF(f, pre_master_secret, pre_master_len, (uint8_t *) TLS_MD_EXTENDED_MASTER_SECRET_CONST, TLS_MD_EXTENDED_MASTER_SECRET_CONST_SIZE, hash, hash_len, NULL, 0, NULL, 0, f->master_secret, SSL3_MASTER_SECRET_SIZE);
+        tls_PRF(f, pre_master_secret, pre_master_len, (uint8_t *) TLS_MD_EXTENDED_MASTER_SECRET_CONST, TLS_MD_EXTENDED_MASTER_SECRET_CONST_SIZE, hash, hash_len, NULL, 0, NULL, 0, f->master_secret, SSL3_MASTER_SECRET_SIZE);
 #ifdef DEBUG_HS
         fprintf(stdout, "Premaster Secret:\n");
         BIO_dump_fp(stdout, (char *)pre_master_secret, pre_master_len);
@@ -896,7 +907,7 @@ int compute_master_secret(flow *f){
 
     } else {
 
-        PRF(f, pre_master_secret, pre_master_len, (uint8_t *) TLS_MD_MASTER_SECRET_CONST, TLS_MD_MASTER_SECRET_CONST_SIZE, f->client_random, SSL3_RANDOM_SIZE, f->server_random, SSL3_RANDOM_SIZE, NULL, 0, f->master_secret, SSL3_MASTER_SECRET_SIZE);
+        tls_PRF(f, pre_master_secret, pre_master_len, (uint8_t *) TLS_MD_MASTER_SECRET_CONST, TLS_MD_MASTER_SECRET_CONST_SIZE, f->client_random, SSL3_RANDOM_SIZE, f->server_random, SSL3_RANDOM_SIZE, NULL, 0, f->master_secret, SSL3_MASTER_SECRET_SIZE);
 
 #ifdef DEBUG_HS
         fprintf(stdout, "Premaster Secret:\n");
@@ -1049,7 +1060,7 @@ int extract_server_random(flow *f, uint8_t *hs){
  *  Output:
  *  	0 on success, 1 on failure
  */
-int PRF(flow *f, uint8_t *secret, int32_t secret_len,
+static int tls_PRF(flow *f, uint8_t *secret, int32_t secret_len,
         uint8_t *seed1, int32_t seed1_len,
         uint8_t *seed2, int32_t seed2_len,
         uint8_t *seed3, int32_t seed3_len,
@@ -1202,7 +1213,7 @@ int init_ciphers(flow *f){
     total_len *= 2;
     uint8_t *key_block = scalloc(1, total_len);
 
-    PRF(f, f->master_secret, SSL3_MASTER_SECRET_SIZE,
+    tls_PRF(f, f->master_secret, SSL3_MASTER_SECRET_SIZE,
             (uint8_t *) TLS_MD_KEY_EXPANSION_CONST, TLS_MD_KEY_EXPANSION_CONST_SIZE,
             f->server_random, SSL3_RANDOM_SIZE,
             f->client_random, SSL3_RANDOM_SIZE,
@@ -1391,7 +1402,7 @@ void generate_client_super_keys(uint8_t *secret, client *c){
     int32_t total_len = 2*key_len + mac_len;
     uint8_t *key_block = scalloc(1, total_len);
 
-    PRF(NULL, shared_secret, SLITHEEN_SUPER_SECRET_SIZE,
+    tls_PRF(NULL, shared_secret, SLITHEEN_SUPER_SECRET_SIZE,
             (uint8_t *) SLITHEEN_SUPER_CONST, SLITHEEN_SUPER_CONST_SIZE,
             NULL, 0,
             NULL, 0,
@@ -1680,7 +1691,7 @@ int check_handshake(struct packet_info *info){
 /* Check the given tag with the given context and private key.  Return 0
    if the tag is properly formed, non-0 if not.  If the tag is correct,
    set key to the resulting secret key. */
-int check_tag(byte key[16], const byte privkey[PTWIST_BYTES],
+static int check_tag(byte key[16], const byte privkey[PTWIST_BYTES],
         const byte tag[PTWIST_TAG_BYTES], const byte *context,
         size_t context_len)
 {

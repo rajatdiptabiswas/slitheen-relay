@@ -39,11 +39,15 @@
 
 #include "util.h"
 #include "flow.h"
-#include "slitheen.h"
 #include "relay.h"
 #include "crypto.h"
 #include "cryptothread.h"
 #include "packet.h"
+
+struct sniff_args {
+    char *readdev;
+    char *writedev;
+};
 
 void got_packet(uint8_t *args, const struct pcap_pkthdr *header, const uint8_t *packet);
 void *sniff_packets(void *);

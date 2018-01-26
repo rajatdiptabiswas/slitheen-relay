@@ -38,16 +38,7 @@
 void *smalloc(size_t size);
 void *scalloc(size_t nmemb, size_t size);
 
-//Standard queue data structure
-typedef struct element_st {
-    void *data;
-    struct element_st *next;
-} element;
-
-typedef struct queue_st {
-    element *first;
-    element *last;
-} queue;
+typedef struct queue_st queue;
 
 queue *init_queue();
 void enqueue(queue *list, void *data);
