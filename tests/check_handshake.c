@@ -149,7 +149,132 @@ END_TEST
 
 START_TEST(full_handshake_extended){
 
+    flow *f = NULL;
+    uint8_t *data;
+    struct packet_info *info;
 
+    info = smalloc(sizeof(struct packet_info));
+
+    /* Read in ClientHello message */
+    if(!read_file("data/frame_handshake_extended1.dat", &data)){
+        ck_abort();
+    }
+    extract_packet_headers(data, info);
+
+    //Make sure it recognized the tag
+    ck_assert_int_eq(check_handshake(info), 1);
+
+    //make sure it saved the flow
+    f = check_flow(info);
+    ck_assert_ptr_ne(f, NULL);
+
+    add_packet(f, info);
+
+    free(data);
+
+    /* Read in ServerHello message */
+    if(!read_file("data/frame_handshake_extended2.dat", &data)){
+        ck_abort();
+    }
+    extract_packet_headers(data, info);
+
+    f = check_flow(info);
+    ck_assert_ptr_ne(f, NULL);
+
+    add_packet(f, info);
+
+    //make sure it recognized the extended master extension
+    ck_assert_int_eq(f->extended_master_secret, 1);
+
+    free(data);
+
+    /* Read in Certificate messages */
+    if(!read_file("data/frame_handshake_extended3.dat", &data)){
+        ck_abort();
+    }
+    extract_packet_headers(data, info);
+
+    f = check_flow(info);
+    ck_assert_ptr_ne(f, NULL);
+
+    add_packet(f, info);
+
+    free(data);
+
+    if(!read_file("data/frame_handshake_extended4.dat", &data)){
+        ck_abort();
+    }
+    extract_packet_headers(data, info);
+
+    f = check_flow(info);
+    ck_assert_ptr_ne(f, NULL);
+
+    add_packet(f, info);
+
+    free(data);
+
+    if(!read_file("data/frame_handshake_extended5.dat", &data)){
+        ck_abort();
+    }
+    extract_packet_headers(data, info);
+
+    f = check_flow(info);
+    ck_assert_ptr_ne(f, NULL);
+
+    add_packet(f, info);
+
+    free(data);
+
+    /* ServerKeyEx, ServerHelloDone */
+    if(!read_file("data/frame_handshake_extended6.dat", &data)){
+        ck_abort();
+    }
+    extract_packet_headers(data, info);
+
+    f = check_flow(info);
+    ck_assert_ptr_ne(f, NULL);
+
+    add_packet(f, info);
+
+    free(data);
+
+    /* ClientKeyEx, CCS, Finished */
+    if(!read_file("data/frame_handshake_extended7.dat", &data)){
+        ck_abort();
+    }
+    extract_packet_headers(data, info);
+
+    f = check_flow(info);
+    ck_assert_ptr_ne(f, NULL);
+
+    add_packet(f, info);
+
+    //Verify Finished received
+    ck_assert_int_eq(f->out_encrypted, 2);
+
+    free(data);
+
+    /* CCS, Finished (from the server) */
+    if(!read_file("data/frame_handshake_extended8.dat", &data)){
+        ck_abort();
+    }
+    extract_packet_headers(data, info);
+
+    f = check_flow(info);
+    ck_assert_ptr_ne(f, NULL);
+
+    add_packet(f, info);
+
+    //Make sure both Finished messages were successfully received and decrypted
+
+    f = check_flow(info);
+    ck_assert_ptr_ne(f, NULL);
+    ck_assert_int_eq(f->in_encrypted, 2);
+    ck_assert_int_eq(f->application, 1);
+
+    remove_flow(f);
+
+    free(data);
 
 }
 END_TEST
@@ -176,6 +301,9 @@ Suite *tag_suite(void) {
 
     tc_core = tcase_create("Core");
     tcase_add_test(tc_core, full_handshake_regular);
+#if OPENSSL_VERSION_NUMBER >= 0x1010000eL
+    tcase_add_test(tc_core, full_handshake_extended);
+#endif
     suite_add_tcase(s, tc_core);
 
     return s;
