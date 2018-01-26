@@ -211,20 +211,17 @@ void process_packet(struct inject_args *iargs, const struct pcap_pkthdr *header,
     flow *observed;
     if((observed = check_flow(info)) != NULL){
 
-#ifdef DEBUG
         /*Check sequence number and replay application data if necessary*/
-        fprintf(stdout,"Flow: %x:%d > %x:%d (%s)\n", info->ip_hdr->src.s_addr, ntohs(info->tcp_hdr->src_port), info->ip_hdr->dst.s_addr, ntohs(info->tcp_hdr->dst_port), (info->ip_hdr->src.s_addr != observed->src_ip.s_addr)? "incoming":"outgoing");
-        fprintf(stdout,"ID number: %u\n", htonl(info->ip_hdr->id));
-        fprintf(stdout,"Sequence number: %u\n", htonl(info->tcp_hdr->sequence_num));
-        fprintf(stdout,"Acknowledgement number: %u\n", htonl(info->tcp_hdr->ack_num));
-#endif
+        DEBUG_MSG(DEBUG_FLOW, "Flow: %x:%d > %x:%d (%s)\n", info->ip_hdr->src.s_addr, ntohs(info->tcp_hdr->src_port), info->ip_hdr->dst.s_addr, ntohs(info->tcp_hdr->dst_port), (info->ip_hdr->src.s_addr != observed->src_ip.s_addr)? "incoming":"outgoing");
+        DEBUG_MSG(DEBUG_FLOW, "ID number: %u\n", htonl(info->ip_hdr->id));
+        DEBUG_MSG(DEBUG_FLOW, "Sequence number: %u\n", htonl(info->tcp_hdr->sequence_num));
+        DEBUG_MSG(DEBUG_FLOW, "Acknowledgement number: %u\n", htonl(info->tcp_hdr->ack_num));
 
         uint8_t incoming = (info->ip_hdr->src.s_addr != observed->src_ip.s_addr)? 1 : 0;
         uint32_t seq_num = htonl(info->tcp_hdr->sequence_num);
         uint32_t expected_seq = (incoming)? observed->downstream_seq_num : observed->upstream_seq_num;
-#ifdef DEBUG
-        fprintf(stdout,"Expected sequence number: %u\n", expected_seq);
-#endif
+
+        DEBUG_MSG(DEBUG_FLOW, "Expected sequence number: %u\n", expected_seq);
 
         /* Remove acknowledged data from queue after TCP window is exceeded */
         update_window_expiration(observed, info);
@@ -388,20 +385,18 @@ void save_packet(flow *f, struct packet_info *info){
             if(new_block->seq_num ==
                     f->downstream_seq_num){
                 f->downstream_seq_num += new_block->len;
-#ifdef DEBUG
-                printf("Updated downstream expected seqnum to %u\n",
+
+                DEBUG_MSG(DEBUG_FLOW, "Updated downstream expected seqnum to %u\n",
                         f->downstream_seq_num );
-#endif
             }
         } else {
             f->upstream_app_data->first_packet = new_block;
             if(new_block->seq_num ==
                     f->upstream_seq_num){
                 f->upstream_seq_num += new_block->len;
-#ifdef DEBUG
-                printf("Updated upstream expected seqnum to %u\n",
+
+                DEBUG_MSG(DEBUG_FLOW, "Updated upstream expected seqnum to %u\n",
                         f->upstream_seq_num );
-#endif
             }
         }
 
@@ -419,19 +414,15 @@ void save_packet(flow *f, struct packet_info *info){
                 if(saved_data->next->seq_num ==
                         f->downstream_seq_num){
                     f->downstream_seq_num += saved_data->next->len;
-#ifdef DEBUG
-                    printf("Updated downstream expected seqnum to %u\n",
+                    DEBUG_MSG(DEBUG_FLOW, "Updated downstream expected seqnum to %u\n",
                             f->downstream_seq_num );
-#endif
                 }
             } else {//outgoing
                 if(saved_data->next->seq_num ==
                         f->upstream_seq_num){
                     f->upstream_seq_num += saved_data->next->len;
-#ifdef DEBUG
-                    printf("Updated upstream expected seqnum to %u\n",
+                    DEBUG_MSG(DEBUG_FLOW, "Updated upstream expected seqnum to %u\n",
                             f->upstream_seq_num );
-#endif
                 }
             }
 
@@ -445,19 +436,15 @@ void save_packet(flow *f, struct packet_info *info){
                 if(saved_data->next->seq_num ==
                         f->downstream_seq_num){
                     f->downstream_seq_num += saved_data->next->len;
-#ifdef DEBUG
-                    printf("Updated downstream expected seqnum to %u\n",
+                    DEBUG_MSG(DEBUG_FLOW, "Updated downstream expected seqnum to %u\n",
                             f->downstream_seq_num );
-#endif
                 }
             } else {//outgoing
                 if(saved_data->next->seq_num ==
                         f->upstream_seq_num){
                     f->upstream_seq_num += saved_data->next->len;
-#ifdef DEBUG
-                    printf("Updated upstream expected seqnum to %u\n",
+                    DEBUG_MSG(DEBUG_FLOW, "Updated upstream expected seqnum to %u\n",
                             f->upstream_seq_num );
-#endif
                 }
             }
 
@@ -478,11 +465,9 @@ void update_window_expiration(flow *f, struct packet_info *info){
     uint32_t end_seq = htonl(info->tcp_hdr->sequence_num) + info->app_data_len - 1;
     uint32_t window = ack_num + htons(info->tcp_hdr->win_size);
 
-#ifdef DEBUG
-    printf("Received sequence number %u\n", htonl(info->tcp_hdr->sequence_num));
-    printf("Acknowledged up to %u with window expiring at %u\n", ack_num, window);
-    printf("Removing all packets up to %u\n", end_seq);
-#endif
+    DEBUG_MSG(DEBUG_FLOW, "Received sequence number %u\n", htonl(info->tcp_hdr->sequence_num));
+    DEBUG_MSG(DEBUG_FLOW, "Acknowledged up to %u with window expiring at %u\n", ack_num, window);
+    DEBUG_MSG(DEBUG_FLOW, "Removing all packets up to %u\n", end_seq);
 
     packet *saved_data = (incoming)? f->downstream_app_data->first_packet :
         f->upstream_app_data->first_packet;
@@ -499,13 +484,11 @@ void update_window_expiration(flow *f, struct packet_info *info){
         saved_data = (incoming)? f->downstream_app_data->first_packet :
             f->upstream_app_data->first_packet;
 
-#ifdef DEBUG
         if(saved_data != NULL){
-            printf("Currently saved seq_num is now %u\n", saved_data->seq_num);
+            DEBUG_MSG(DEBUG_FLOW, "Currently saved seq_num is now %u\n", saved_data->seq_num);
         } else {
-            printf("Acked all data, queue is empty\n");
+            DEBUG_MSG(DEBUG_FLOW, "Acked all data, queue is empty\n");
         }
-#endif
 
     }
 

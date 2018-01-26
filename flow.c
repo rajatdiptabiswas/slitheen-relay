@@ -308,25 +308,25 @@ static int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 
                     if(f->resume_session){
                         if(verify_session_id(f,p)){
-                            fprintf(stderr, "Failed to verify session id\n");
+                            DEBUG_MSG(DEBUG_HS, "Failed to verify session id\n");
                         }
                     } else {
                         if(save_session_id(f,p)){
-                            fprintf(stderr, "Failed to save session id\n");
+                            DEBUG_MSG(DEBUG_HS, "Failed to save session id\n");
                         }
                     }
 
                     if(verify_extensions(f,p, HANDSHAKE_MESSAGE_LEN(handshake_hdr))){
-                        fprintf(stderr, "Failed to verify extensions\n");
+                        DEBUG_MSG(DEBUG_HS, "Failed to verify extensions\n");
                     }
 
                     if(extract_server_random(f, p)){
-                        fprintf(stderr, "Failed to extract server random nonce\n");
+                        DEBUG_MSG(DEBUG_HS, "Failed to extract server random nonce\n");
                         remove_flow(f);
                         goto err;
                     }
                     if(update_handshake_hash(f, p)){
-                        fprintf(stderr, "Error updating finish has with CLNT_HELLO msg\n");
+                        DEBUG_MSG(DEBUG_HS, "Error updating finish has with CLNT_HELLO msg\n");
                         remove_flow(f);
                         goto err;
                     }
@@ -335,14 +335,13 @@ static int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
                     DEBUG_MSG(DEBUG_HS, "Received new session\n");
 
                     if(save_session_ticket(f, p, HANDSHAKE_MESSAGE_LEN(handshake_hdr))){
-                        fprintf(stderr, "Failed to save session ticket\n");
+                        DEBUG_MSG(DEBUG_HS, "Failed to save session ticket\n");
                     }
                     break;
                 case TLS_CERT:
                     DEBUG_MSG(DEBUG_HS, "Received cert\n");
 
                     if(update_handshake_hash(f, p)){
-                        fprintf(stderr, "Error updating finish has with CLNT_HELLO msg\n");
                         remove_flow(f);
                         goto err;
                     }
@@ -351,7 +350,6 @@ static int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
                     DEBUG_MSG(DEBUG_HS, "Received certificate status\n");
 
                     if(update_handshake_hash(f, p)){
-                        fprintf(stderr, "Error updating finish has with CLNT_HELLO msg\n");
                         remove_flow(f);
                         goto err;
                     }
@@ -360,13 +358,12 @@ static int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
                     DEBUG_MSG(DEBUG_HS, "Received server keyex\n");
 
                     if(extract_parameters(f, p)){
-                        printf("Error extracting params\n");
+                        DEBUG_MSG(DEBUG_HS, "Error extracting params\n");
                         remove_flow(f);
                         goto err;
                     }
 
                     if(update_handshake_hash(f, p)){
-                        fprintf(stderr, "Error updating finish has with CLNT_HELLO msg\n");
                         remove_flow(f);
                         goto err;
                     }
@@ -375,7 +372,6 @@ static int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 
                 case TLS_CERT_REQ:
                     if(update_handshake_hash(f, p)){
-                        fprintf(stderr, "Error updating finish has with CLNT_HELLO msg\n");
                         remove_flow(f);
                         goto err;
                     }
@@ -384,7 +380,6 @@ static int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
                     DEBUG_MSG(DEBUG_HS, "Received server hello done\n");
 
                     if(update_handshake_hash(f, p)){
-                        fprintf(stderr, "Error updating finish has with CLNT_HELLO msg\n");
                         remove_flow(f);
                         goto err;
                     }
@@ -393,7 +388,6 @@ static int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
                     DEBUG_MSG(DEBUG_HS, "received cert verify\n");
 
                     if(update_handshake_hash(f, p)){
-                        fprintf(stderr, "Error updating finish has with CLNT_HELLO msg\n");
                         remove_flow(f);
                         goto err;
                     }
@@ -403,12 +397,11 @@ static int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
                     DEBUG_MSG(DEBUG_HS, "Received client key exchange\n");
 
                     if(update_handshake_hash(f, p)){
-                        fprintf(stderr, "Error updating finish has with CLNT_HELLO msg\n");
                         remove_flow(f);
                         goto err;
                     }
                     if(compute_master_secret(f)){
-                        printf("Error computing master secret\n");
+                        DEBUG_MSG(DEBUG_HS, "Error computing master secret\n");
                         remove_flow(f);
                         goto err;
 
@@ -419,7 +412,7 @@ static int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
 
                     if((f->in_encrypted == 2) && (f->out_encrypted == 2)){
                         f->application = 1;
-                        printf("Handshake complete!\n");
+                        DEBUG_MSG(DEBUG_HS, "Handshake complete!\n");
                     }
 
                     if(!incoming) {
@@ -428,7 +421,7 @@ static int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
                         break;
                     }
                     if(mark_finished_hash(f, p)){
-                        fprintf(stderr, "Error marking finished hash\n");
+                        DEBUG_MSG(DEBUG_HS, "Error marking finished hash\n");
                         remove_flow(f);
                         goto err;
                     }
@@ -440,19 +433,19 @@ static int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
                     DEBUG_BYTES(DEBUG_HS, record, record_len);
 
                     if(n<=0){
-                        printf("Error re-encrypting finished  (%x:%d -> %x:%d)\n", f->src_ip.s_addr, ntohs(f->src_port),
+                        DEBUG_MSG(DEBUG_HS, "Error re-encrypting finished  (%x:%d -> %x:%d)\n", f->src_ip.s_addr, ntohs(f->src_port),
                                 f->dst_ip.s_addr, ntohs(f->dst_port));
                     }
 
                     break;
                 default:
-                    printf("Error: unrecognized hs message? (%x:%d -> %x:%d)...\n", f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port));
+                    DEBUG_MSG(DEBUG_HS, "Error: unrecognized hs message? (%x:%d -> %x:%d)...\n", f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port));
                     remove_flow(f);
                     goto err;
             }
             break;
         case APP:
-            printf("Application Data (%x:%d -> %x:%d)...\n", f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port));
+            DEBUG_MSG(DEBUG_HS, "Application Data (%x:%d -> %x:%d)...\n", f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port));
             break;
         case CCS:
             DEBUG_MSG(DEBUG_HS, "CCS (%x:%d -> %x:%d) \n", f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port));
@@ -481,31 +474,27 @@ static int update_flow(flow *f, uint8_t *record, uint8_t incoming) {
                 if(n <= 0){
                     printf("Error decrypting Alert\n");
                 }
-                printf("Decrypted alert:\n");
-                for(int i=0; i< n; i++){
-                    printf("%02x ", p[i]);
-                }
-                printf("\n");
+                DEBUG_MSG(DEBUG_HS, "Decrypted alert:\n");
+                DEBUG_BYTES(DEBUG_HS, p, n);
+
                 p += EVP_GCM_TLS_EXPLICIT_IV_LEN;
             }
-            printf("Alert (%x:%d -> %x:%d) (%s) %02x %02x \n", f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port), (incoming) ? "incoming" : "outgoing", p[0], p[1]);
-            fflush(stdout);
+            DEBUG_MSG(DEBUG_HS, "Alert (%x:%d -> %x:%d) (%s) %02x %02x \n", f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port), (incoming) ? "incoming" : "outgoing", p[0], p[1]);
 
             //re-encrypt alert
             if(((incoming) && (f->in_encrypted > 0)) || ((!incoming) && (f->out_encrypted > 0))){
                 int32_t n =  encrypt(f, record+RECORD_HEADER_LEN, record+RECORD_HEADER_LEN, record_len - (RECORD_HEADER_LEN+16), incoming, 0x15, 1, 1);
                 if(n <= 0){
-                    printf("Error re-encrypting alert\n");
+                    DEBUG_MSG(DEBUG_HS, "Error re-encrypting alert\n");
                 }
             }
 
             break;
         case HB:
-            printf("Heartbeat\n");
+            DEBUG_MSG(DEBUG_HS, "Heartbeat\n");
             break;
         default:
-            printf("Error: Not a Record (%x:%d -> %x:%d)\n", f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port));
-            fflush(stdout);
+            DEBUG_MSG(DEBUG_HS, "Error: Not a Record (%x:%d -> %x:%d)\n", f->src_ip.s_addr, ntohs(f->src_port), f->dst_ip.s_addr, ntohs(f->dst_port));
             remove_flow(f);
             goto err;
     }

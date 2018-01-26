@@ -1343,13 +1343,8 @@ int super_encrypt(client *c, uint8_t *data, uint32_t len){
     uint8_t output[EVP_MAX_MD_SIZE];
 
     //first encrypt the header	
-#ifdef DEBUG_DOWN
-    printf("Plaintext Header:\n");
-    for(int i=0; i< SLITHEEN_HEADER_LEN; i++){
-        printf("%02x ", p[i]);
-    }
-    printf("\n");
-#endif
+    DEBUG_MSG(DEBUG_CRYPTO, "super encrypt: Plaintext Header:\n");
+    DEBUG_BYTES(DEBUG_CRYPTO, p, SLITHEEN_HEADER_LEN);
 
     hdr_ctx = EVP_CIPHER_CTX_new();
 
@@ -1367,13 +1362,8 @@ int super_encrypt(client *c, uint8_t *data, uint32_t len){
         goto end;
     }
 
-#ifdef DEBUG_DOWN
-    printf("Encrypted Header (%d bytes)\n", out_len);
-    for(int i=0; i< out_len; i++){
-        printf("%02x ", p[i]);
-    }
-    printf("\n");
-#endif
+    DEBUG_MSG(DEBUG_CRYPTO, "super encrypt: Encrypted Header (%d bytes):\n", out_len);
+    DEBUG_BYTES(DEBUG_CRYPTO, p, out_len);
 
     if(len == 0){ //only encrypt header: body contains garbage bytes
         retval = 1;

@@ -121,13 +121,5 @@ void inject_packet(struct inject_args *iargs, const struct pcap_pkthdr *header, 
         printf("Length: %d\n", header->len);
     }
 
-#ifdef DEBUG_EXTRA
-    fprintf(stderr, "injected the following packet:\n");
-    for(int i=0; i< header->len; i++){
-        fprintf(stderr, "%02x ", packet[i]);
-    }
-    fprintf(stderr, "\n");
-
-#endif
     free(packet);
 }
