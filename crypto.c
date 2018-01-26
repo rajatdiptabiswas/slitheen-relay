@@ -274,13 +274,8 @@ int update_handshake_hash(flow *f, uint8_t *hs){
 
     EVP_DigestUpdate(f->hs_md_ctx, hs, hs_len+4);
 
-#ifdef DEBUG_HS_EXTRA
-    printf("SLITHEEN: adding to handshake hash:\n");
-    for(int i=0; i< hs_len + 4; i++){
-        printf("%02x ", hs[i]);
-    }
-    printf("\n");
-#endif
+    DEBUG_MSG(DEBUG_HS, "Adding to handshake hash:\n");
+    DEBUG_BYTES(DEBUG_HS, hs, hs_len);
 
     return 0;
 }
@@ -378,9 +373,9 @@ int extract_parameters(flow *f, uint8_t *hs){
 
         //int curve_id = (p[1] << 8) + p[2];
         int curve_id = *(p+2);
-#ifdef DEBUG_HS
-        printf("Using curve number %d\n", curve_id);
-#endif
+
+        DEBUG_MSG(DEBUG_HS, "Using curve number %d\n", curve_id);
+
         if((curve_id < 0) || ((unsigned int)curve_id >
                     sizeof(nid_list) / sizeof(nid_list[0]))){
             goto err;
@@ -416,7 +411,7 @@ int extract_parameters(flow *f, uint8_t *hs){
             ngroup = EC_GROUP_new_by_curve_name(curve_nid);
 
             if(ngroup == NULL){
-                printf("couldn't get curve by name (%d)\n", curve_nid);
+                DEBUG_MSG(DEBUG_HS, "couldn't get curve by name (%d)\n", curve_nid);
                 goto err;
             }
 
@@ -510,21 +505,6 @@ int encrypt(flow *f, uint8_t *input, uint8_t *output, int32_t len, int32_t incom
         }
     }
 
-    /*if(f->application && (ds->iv[EVP_GCM_TLS_FIXED_IV_LEN] == 0)){
-    //fill in rest of iv
-    for(int i = EVP_GCM_TLS_FIXED_IV_LEN; i< ds->cipher->iv_len; i++){
-    ds->iv[i] = p[i- EVP_GCM_TLS_FIXED_IV_LEN];
-    }
-    }*/
-
-#ifdef DEBUG_HS_EXTRA
-    printf("\t\tiv: ");
-    for(int i=0; i<ds->cipher->iv_len; i++){
-        printf("%02X ", ds->iv[i]);
-    }
-    printf("\n");
-#endif
-
     uint8_t buf[13];
     memcpy(buf, seq, 8);
 
@@ -548,13 +528,8 @@ int encrypt(flow *f, uint8_t *input, uint8_t *output, int32_t len, int32_t incom
     int32_t n = EVP_Cipher(ds, p, p, len); //decrypt in place
     if(n<0) return 0;
 
-#ifdef DEBUG
-    printf("decrypted data:\n");
-    for(int i=0; i< len; i++){
-        printf("%02x ", p[EVP_GCM_TLS_EXPLICIT_IV_LEN+i]);
-    }
-    printf("\n");
-#endif
+    DEBUG_MSG(DEBUG_CRYPTO, "decrypted data:\n");
+    DEBUG_BYTES(DEBUG_CRYPTO, p, len);
 
     if(!enc)
         p[EVP_GCM_TLS_EXPLICIT_IV_LEN+n] = '\0';
@@ -628,9 +603,8 @@ int mark_finished_hash(flow *f, uint8_t *hs){
  *  	0 on success, 1 on failure
  */
 int compute_master_secret(flow *f){
-#ifdef DEBUG_HS
-    printf("Computing master secret (%x:%d -> %x:%d)...\n", f->src_ip.s_addr, f->src_port, f->dst_ip.s_addr, f->dst_port);
-#endif
+
+    DEBUG_MSG(DEBUG_CRYPTO, "Computing master secret (%x:%d -> %x:%d)...\n", f->src_ip.s_addr, f->src_port, f->dst_ip.s_addr, f->dst_port);
 
     DH *dh_srvr = NULL;
     DH *dh_clnt = NULL;
@@ -680,25 +654,17 @@ int compute_master_secret(flow *f){
 
         pub_key = BN_new();
         priv_key = BN_new();
-#ifdef DEBUG
-        printf("key =");
-        for(int i=0; i< 16; i++)
-            printf(" %02x", f->key[i]);
-        printf("\n");
-#endif
+
+        DEBUG_MSG(DEBUG_CRYPTO, "tag key =");
+        DEBUG_BYTES(DEBUG_CRYPTO, f->key, 16);
 
         tls_PRF(f, f->key, 16,
                 (uint8_t *) SLITHEEN_KEYGEN_CONST, SLITHEEN_KEYGEN_CONST_SIZE,
                 NULL, 0, NULL, 0, NULL, 0,
                 buf, bytes);
 
-#ifdef DEBUG_HS
-        printf("Generated the client private key [len: %d]: ", bytes);
-        for(int i=0; i< bytes; i++){
-            printf(" %02x ", buf[i]);
-        }
-        printf("\n");
-#endif
+        DEBUG_MSG(DEBUG_CRYPTO, "Generated the client private key [len: %d]: ", bytes);
+        DEBUG_BYTES(DEBUG_CRYPTO, buf, bytes);
 
         if (!BN_bin2bn(buf, bytes, priv_key))
             goto err;
@@ -756,14 +722,9 @@ int compute_master_secret(flow *f){
             tls_PRF(f, f->key, 16, (uint8_t *) SLITHEEN_KEYGEN_CONST, SLITHEEN_KEYGEN_CONST_SIZE,
                     NULL, 0, NULL, 0, NULL, 0, xkey->privkey, X25519_KEYLEN);
 
-#ifdef DEBUG_HS
-            printf("Generated the X25519 client private key [len: %d]: ", X25519_KEYLEN);
-            for(int i=0; i< X25519_KEYLEN; i++){
-                printf("%02x ", xkey->privkey[i]);
-            }
-            printf("\n");
-#endif
-            //X25519_public_from_private(xkey->pubkey, xkey->privkey);
+            DEBUG_MSG(DEBUG_CRYPTO, "Generated the X25519 client private key [len: %d]: ", X25519_KEYLEN);
+            DEBUG_BYTES(DEBUG_CRYPTO, xkey->privkey, X25519_KEYLEN);
+
             ckey = EVP_PKEY_new();
             EVP_PKEY_assign(ckey, NID_X25519, xkey);
 
@@ -831,13 +792,8 @@ int compute_master_secret(flow *f){
             tls_PRF(f, f->key, 16, (uint8_t *) SLITHEEN_KEYGEN_CONST, SLITHEEN_KEYGEN_CONST_SIZE,
                     NULL, 0, NULL, 0, NULL, 0, buf, bytes);
 
-#ifdef DEBUG_HS
-            printf("Generated the client private key [len: %d]: ", bytes);
-            for(int i=0; i< bytes; i++){
-                printf("%02x ", buf[i]);
-            }
-            printf("\n");
-#endif
+            DEBUG_MSG(DEBUG_CRYPTO, "Generated the client private key [len: %d]: ", bytes);
+            DEBUG_BYTES(DEBUG_CRYPTO, buf, bytes);
 
             if(!BN_bin2bn(buf, bytes, priv_key)){
                 goto err;
@@ -896,29 +852,26 @@ int compute_master_secret(flow *f){
 #endif
 
         tls_PRF(f, pre_master_secret, pre_master_len, (uint8_t *) TLS_MD_EXTENDED_MASTER_SECRET_CONST, TLS_MD_EXTENDED_MASTER_SECRET_CONST_SIZE, hash, hash_len, NULL, 0, NULL, 0, f->master_secret, SSL3_MASTER_SECRET_SIZE);
-#ifdef DEBUG_HS
-        fprintf(stdout, "Premaster Secret:\n");
-        BIO_dump_fp(stdout, (char *)pre_master_secret, pre_master_len);
-        fprintf(stdout, "Handshake hash:\n");
-        BIO_dump_fp(stdout, (char *)hash, hash_len);
-        fprintf(stdout, "Master Secret:\n");
-        BIO_dump_fp(stdout, (char *)f->master_secret, SSL3_MASTER_SECRET_SIZE);
-#endif
+
+        DEBUG_MSG(DEBUG_CRYPTO, "Premaster Secret:\n");
+        DEBUG_BYTES(DEBUG_CRYPTO, pre_master_secret, pre_master_len);
+        DEBUG_MSG(DEBUG_CRYPTO, "Handshake hash:\n");
+        DEBUG_BYTES(DEBUG_CRYPTO, hash, hash_len);
+        DEBUG_MSG(DEBUG_CRYPTO, "Master Secret:\n");
+        DEBUG_BYTES(DEBUG_CRYPTO, f->master_secret, SSL3_MASTER_SECRET_SIZE);
 
     } else {
 
         tls_PRF(f, pre_master_secret, pre_master_len, (uint8_t *) TLS_MD_MASTER_SECRET_CONST, TLS_MD_MASTER_SECRET_CONST_SIZE, f->client_random, SSL3_RANDOM_SIZE, f->server_random, SSL3_RANDOM_SIZE, NULL, 0, f->master_secret, SSL3_MASTER_SECRET_SIZE);
 
-#ifdef DEBUG_HS
-        fprintf(stdout, "Premaster Secret:\n");
-        BIO_dump_fp(stdout, (char *)pre_master_secret, pre_master_len);
-        fprintf(stdout, "Client Random:\n");
-        BIO_dump_fp(stdout, (char *)f->client_random, SSL3_RANDOM_SIZE);
-        fprintf(stdout, "Server Random:\n");
-        BIO_dump_fp(stdout, (char *)f->server_random, SSL3_RANDOM_SIZE);
-        fprintf(stdout, "Master Secret:\n");
-        BIO_dump_fp(stdout, (char *)f->master_secret, SSL3_MASTER_SECRET_SIZE);
-#endif
+        DEBUG_MSG(DEBUG_CRYPTO, "Premaster Secret:\n");
+        DEBUG_BYTES(DEBUG_CRYPTO, pre_master_secret, pre_master_len);
+        DEBUG_MSG(DEBUG_CRYPTO, "Client Random:\n");
+        DEBUG_BYTES(DEBUG_CRYPTO, f->client_random, SSL3_RANDOM_SIZE);
+        DEBUG_MSG(DEBUG_CRYPTO, "Server Random:\n");
+        DEBUG_BYTES(DEBUG_CRYPTO, f->server_random, SSL3_RANDOM_SIZE);
+        DEBUG_MSG(DEBUG_CRYPTO, "Master Secret:\n");
+        DEBUG_BYTES(DEBUG_CRYPTO, f->master_secret, SSL3_MASTER_SECRET_SIZE);
     }
 
     if(f->current_session != NULL){
@@ -992,53 +945,39 @@ int extract_server_random(flow *f, uint8_t *hs){
     p += id_len;
 
     //now extract ciphersuite
-#ifdef DEBUG_HS
-    printf("Checking cipher\n");
-#endif
 
     if(((p[0] <<8) + p[1]) == 0x9E){
 
-#ifdef DEBUG_HS
-        printf("USING DHE-RSA-AES128-GCM-SHA256\n");
-        fflush(stdout);
-#endif
+        DEBUG_MSG(DEBUG_CRYPTO, "USING DHE-RSA-AES128-GCM-SHA256\n");
+
         f->keyex_alg = 1;
         f->cipher = EVP_aes_128_gcm();
         f->message_digest = EVP_sha256();
 
     } else if(((p[0] <<8) + p[1]) == 0x9F){
-#ifdef DEBUG_HS
-        printf("USING DHE-RSA-AES256-GCM-SHA384\n");
-        fflush(stdout);
-#endif
+        DEBUG_MSG(DEBUG_CRYPTO, "USING DHE-RSA-AES256-GCM-SHA384\n");
+
         f->keyex_alg = 1;
         f->cipher = EVP_aes_256_gcm();
         f->message_digest = EVP_sha384();
 
     } else if(((p[0] <<8) + p[1]) == 0xC02F){
-#ifdef DEBUG_HS
-        printf("USING ECDHE-RSA-AES128-GCM-SHA256\n");
-        fflush(stdout);
-#endif
+        DEBUG_MSG(DEBUG_CRYPTO, "USING ECDHE-RSA-AES128-GCM-SHA256\n");
+
         f->keyex_alg = 2;
         f->cipher = EVP_aes_128_gcm();
         f->message_digest = EVP_sha256();
 
     } else if(((p[0] <<8) + p[1]) == 0xC030){
-#ifdef DEBUG_HS
-        printf("USING ECDHE-RSA-AES256-GCM-SHA384\n");
-        fflush(stdout);
-#endif
+        DEBUG_MSG(DEBUG_CRYPTO, "USING ECDHE-RSA-AES256-GCM-SHA384\n");
+
         f->keyex_alg = 2;
         f->cipher = EVP_aes_256_gcm();
         f->message_digest = EVP_sha384();
 
     } else {
-#ifdef DEBUG_HS
-        printf("%x %x = %x\n", p[0], p[1], ((p[0] <<8) + p[1]));
-        printf("Error: unsupported cipher\n");
-        fflush(stdout);
-#endif
+        DEBUG_MSG(DEBUG_CRYPTO, "%x %x = %x\n", p[0], p[1], ((p[0] <<8) + p[1]));
+        DEBUG_MSG(DEBUG_CRYPTO, "Error: unsupported cipher\n");
         return 1;
     }
 
@@ -1220,31 +1159,14 @@ int init_ciphers(flow *f){
             NULL, 0,
             key_block, total_len);
 
-#ifdef DEBUG
-    printf("master secret: (%x:%d -> %x:%d)\n", f->src_ip.s_addr, f->src_port, f->dst_ip.s_addr, f->dst_port);
-    for(int i=0; i< SSL3_MASTER_SECRET_SIZE; i++){
-        printf("%02x ", f->master_secret[i]);
-    }
-    printf("\n");
-
-    printf("client random: (%x:%d -> %x:%d)\n", f->src_ip.s_addr, f->src_port, f->dst_ip.s_addr, f->dst_port);
-    for(int i=0; i< SSL3_RANDOM_SIZE; i++){
-        printf("%02x ", f->client_random[i]);
-    }
-    printf("\n");
-
-    printf("server random: (%x:%d -> %x:%d)\n", f->src_ip.s_addr, f->src_port, f->dst_ip.s_addr, f->dst_port);
-    for(int i=0; i< SSL3_RANDOM_SIZE; i++){
-        printf("%02x ", f->server_random[i]);
-    }
-    printf("\n");
-
-    printf("keyblock: (%x:%d -> %x:%d)\n", f->src_ip.s_addr, f->src_port, f->dst_ip.s_addr, f->dst_port);
-    for(int i=0; i< total_len; i++){
-        printf("%02x ", key_block[i]);
-    }
-    printf("\n");
-#endif
+    DEBUG_MSG(DEBUG_CRYPTO, "Client Random:\n");
+    DEBUG_BYTES(DEBUG_CRYPTO, f->client_random, SSL3_RANDOM_SIZE);
+    DEBUG_MSG(DEBUG_CRYPTO, "Server Random:\n");
+    DEBUG_BYTES(DEBUG_CRYPTO, f->server_random, SSL3_RANDOM_SIZE);
+    DEBUG_MSG(DEBUG_CRYPTO, "Master Secret:\n");
+    DEBUG_BYTES(DEBUG_CRYPTO, f->master_secret, SSL3_MASTER_SECRET_SIZE);
+    DEBUG_MSG(DEBUG_CRYPTO, "Key Block:\n");
+    DEBUG_BYTES(DEBUG_CRYPTO, key_block, total_len);
 
     iv_len = EVP_GCM_TLS_FIXED_IV_LEN;
 
@@ -1263,46 +1185,16 @@ int init_ciphers(flow *f){
     EVP_CIPHER_CTX_init(w_ctx_srvr);
     EVP_CIPHER_CTX_init(r_ctx_srvr);
 
-    /* Initialize MACs --- not needed for aes_256_gcm
-       write_mac = key_block + 2*key_len + 2*iv_len;
-       read_mac = key_block + 2*key_len + 2*iv_len + mac_len;
-       read_mac_ctx = EVP_MD_CTX_create();
-       write_mac_ctx = EVP_MD_CTX_create();
-       read_mac_key =EVP_PKEY_new_mac_key(EVP_PKEY_HMAC, NULL, read_mac, mac_len);
-       write_mac_key =EVP_PKEY_new_mac_key(EVP_PKEY_HMAC, NULL, write_mac, mac_len);
-       EVP_DigestSignInit(read_mac_ctx, NULL, EVP_sha384(), NULL, read_mac_key);
-       EVP_DigestSignInit(write_mac_ctx, NULL, EVP_sha384(), NULL, write_mac_key);
-       EVP_PKEY_free(read_mac_key);
-       EVP_PKEY_free(write_mac_key);*/
 
+    DEBUG_MSG(DEBUG_CRYPTO, "EVP_CipherInit_ex(r_ctx,c,key=,iv=,which)\n");
+    DEBUG_BYTES(DEBUG_CRYPTO, read_key, key_len);
+    DEBUG_MSG(DEBUG_CRYPTO, "\t iv= ");
+    DEBUG_BYTES(DEBUG_CRYPTO, read_iv, iv_len);
 
-#ifdef DEBUG_HS_EXTRA
-    {
-        int i;
-        fprintf(stderr, "EVP_CipherInit_ex(r_ctx,c,key=,iv=,which)\n");
-        fprintf(stderr, "\tkey= ");
-        for (i = 0; i < c->key_len; i++)
-            fprintf(stderr, "%02x", read_key[i]);
-        fprintf(stderr, "\n");
-        fprintf(stderr, "\t iv= ");
-        for (i = 0; i < c->iv_len; i++)
-            fprintf(stderr, "%02x", read_iv[i]);
-        fprintf(stderr, "\n");
-    }
-
-    {
-        int i;
-        fprintf(stderr, "EVP_CipherInit_ex(w_ctx,c,key=,iv=,which)\n");
-        fprintf(stderr, "\tkey= ");
-        for (i = 0; i < c->key_len; i++)
-            fprintf(stderr, "%02x", write_key[i]);
-        fprintf(stderr, "\n");
-        fprintf(stderr, "\t iv= ");
-        for (i = 0; i < c->iv_len; i++)
-            fprintf(stderr, "%02x", write_iv[i]);
-        fprintf(stderr, "\n");
-    }
-#endif 
+    DEBUG_MSG(DEBUG_CRYPTO, "EVP_CipherInit_ex(w_ctx,c,key=,iv=,which)\n");
+    DEBUG_BYTES(DEBUG_CRYPTO, write_key, key_len);
+    DEBUG_MSG(DEBUG_CRYPTO, "\t iv= ");
+    DEBUG_BYTES(DEBUG_CRYPTO, write_iv, iv_len);
 
     if(!EVP_CipherInit_ex(r_ctx, c, NULL, read_key, NULL, 0)){
         printf("FAIL r_ctx\n");
@@ -1379,17 +1271,12 @@ void generate_client_super_keys(uint8_t *secret, client *c){
     /* check tag*/ 
     if(check_tag(shared_secret, privkey, secret, (const byte *)"context", 7)){
         //something went wrong O.o
-        printf("Error extracting secret from tag\n");
+        DEBUG_MSG(DEBUG_CRYPTO, "Error extracting secret from tag\n");
         return;
     }
 
-#ifdef DEBUG
-    printf("Shared secret: ");
-    for(int i=0; i< 16; i++){
-        printf("%02x ", shared_secret[i]);
-    }
-    printf("\n");
-#endif
+    DEBUG_MSG(DEBUG_CRYPTO, "Shared secret: ");
+    DEBUG_BYTES(DEBUG_CRYPTO, shared_secret, 16);
 
     /* Generate Keys */
     uint8_t *hdr_key, *bdy_key;
@@ -1409,19 +1296,11 @@ void generate_client_super_keys(uint8_t *secret, client *c){
             NULL, 0,
             key_block, total_len);
 
-#ifdef DEBUG
-    printf("slitheend id: \n");
-    for(int i=0; i< SLITHEEN_ID_LEN; i++){
-        printf("%02x ", secret[i]);
-    }
-    printf("\n");
+    DEBUG_MSG(DEBUG_CRYPTO, "slitheend id: \n");
+    DEBUG_BYTES(DEBUG_CRYPTO, secret, SLITHEEN_ID_LEN);
 
-    printf("keyblock: \n");
-    for(int i=0; i< total_len; i++){
-        printf("%02x ", key_block[i]);
-    }
-    printf("\n");
-#endif
+    DEBUG_MSG(DEBUG_CRYPTO, "keyblock: \n");
+    DEBUG_BYTES(DEBUG_CRYPTO, key_block, total_len);
 
     hdr_key = key_block;
     bdy_key = key_block + key_len;
@@ -1514,13 +1393,8 @@ int super_encrypt(client *c, uint8_t *data, uint32_t len){
 
     p+= 16;
 
-#ifdef DEBUG
-    printf("Plaintext:\n");
-    for(int i=0; i< len; i++){
-        printf("%02x ", p[i]);
-    }
-    printf("\n");
-#endif
+    DEBUG_MSG(DEBUG_CRYPTO, "super_encrypt: plaintext:\n");
+    DEBUG_BYTES(DEBUG_CRYPTO, p, len);
 
     if(!EVP_CipherUpdate(bdy_ctx, p, &out_len, p, len)){
         printf("Failed!\n");
@@ -1528,14 +1402,8 @@ int super_encrypt(client *c, uint8_t *data, uint32_t len){
         goto end;
     }
 
-#ifdef DEBUG
-    printf("Encrypted %d bytes\n", out_len);
-    printf("Encrypted data:\n");
-    for(int i=0; i< out_len; i++){
-        printf("%02x ", p[i]);
-    }
-    printf("\n");
-#endif
+    DEBUG_MSG(DEBUG_CRYPTO, "super_encrypt: Encrypted data (%d bytes) :\n", out_len);
+    DEBUG_BYTES(DEBUG_CRYPTO, p, out_len);
 
     //MAC at the end
     EVP_MD_CTX *mac_ctx = NULL;
@@ -1563,14 +1431,8 @@ int super_encrypt(client *c, uint8_t *data, uint32_t len){
     p += out_len;
     memcpy(p, output, 16);
 
-#ifdef DEBUG_PARSE
-    printf("Computed mac:\n");
-    for(int i=0; i< 16; i++){
-        printf("%02x ", output[i]);
-    }   
-    printf("\n");
-    fflush(stdout);
-#endif
+    DEBUG_MSG(DEBUG_CRYPTO, "super_encrypt: Computed mac:\n");
+    DEBUG_BYTES(DEBUG_CRYPTO, output, 16);
 
 end:
     if(hdr_ctx != NULL){
@@ -1639,13 +1501,8 @@ int check_handshake(struct packet_info *info){
         //res = check_tag(key, privkey, p, (const byte *)"context", 7);//for phantomjs testing
         if (!res) {
 
-#ifdef DEBUG_HS
-            printf("Received tagged flow! (key =");
-            for(int i=0; i<16;i++){
-                printf(" %02x", key[i]);
-            }
-            printf(")\n");
-#endif
+            DEBUG_MSG(DEBUG_CRYPTO, "Received tagged flow! (key =");
+            DEBUG_BYTES(DEBUG_CRYPTO, key, 16);
 
             /* If flow is not in table, save it */
             flow *flow_ptr = check_flow(info);
@@ -1661,14 +1518,9 @@ int check_handshake(struct packet_info *info){
                 }
 
                 memcpy(flow_ptr->client_random, hello_rand, SSL3_RANDOM_SIZE);
-#ifdef DEBUG
-                for(int i=0; i< SSL3_RANDOM_SIZE; i++){
-                    printf("%02x ", hello_rand[i]);
-                }
-                printf("\n");
 
-                printf("Saved new flow\n");
-#endif
+                DEBUG_MSG(DEBUG_CRYPTO, "Hello random:\n");
+                DEBUG_BYTES(DEBUG_CRYPTO, hello_rand, SSL3_RANDOM_SIZE);
 
                 flow_ptr->ref_ctr--;
 
@@ -1679,7 +1531,6 @@ int check_handshake(struct packet_info *info){
 
                 memcpy(flow_ptr->client_random, hello_rand, SSL3_RANDOM_SIZE);
                 flow_ptr->ref_ctr--;
-                printf("Flow updated in check_flow. %p ref_ctr %d\n", flow_ptr, flow_ptr->ref_ctr);
             }
 
         }

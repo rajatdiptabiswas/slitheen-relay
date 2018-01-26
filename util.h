@@ -35,6 +35,32 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef DEBUG_HS
+#define DEBUG_HS 1
+#else
+#define DEBUG_HS 0
+#endif
+
+#ifdef DEBUG_CRYPTO
+#define DEBUG_CRYPTO 1
+#else
+#define DEBUG_CRYPTO 0
+#endif
+
+/* Debugging macros */
+#define DEBUG_MSG(type, ...) \
+    do { \
+        if(type) printf(__VA_ARGS__); \
+    } while(0)
+
+#define DEBUG_BYTES(type, ptr, len) \
+    do { \
+        if(type) { \
+            for(int i=0; i < len; i++) printf("%02x ", ptr[i]); \
+            printf("\n"); \
+        } \
+    } while(0)
+
 void *smalloc(size_t size);
 void *scalloc(size_t nmemb, size_t size);
 
