@@ -80,6 +80,16 @@ struct __attribute__((__packed__)) sl_up_hdr {
     uint16_t len;
 };
 
+typedef struct stream_st {
+    uint16_t stream_id;
+    int32_t pipefd;
+    struct stream_st *next;
+} stream;
+
+typedef struct stream_table_st {
+    stream *first;
+} stream_table;
+
 static int process_downstream(flow *f, int32_t offset, struct packet_info *info);
 static int read_header(flow *f, struct packet_info *info);
 static int fill_with_downstream(flow *f, uint8_t *data, int32_t length);
@@ -380,7 +390,6 @@ static int read_header(flow *f, struct packet_info *info){
             client *last = clients->first;
             while(last != NULL){
                 if(!memcmp(last->slitheen_id, p, output_len)){
-                    f->streams = last->streams;
                     f->downstream_queue = last->downstream_queue;
                     f->client_ptr = last; 
                     break;
@@ -399,7 +408,7 @@ static int read_header(flow *f, struct packet_info *info){
                 last = last->next;
             }
 
-            if(f->streams == NULL){
+            if(f->client_ptr == NULL){
                 //create new client
 
                 printf("Creating a new client\n");
@@ -433,7 +442,6 @@ static int read_header(flow *f, struct packet_info *info){
 
                 //set f's stream table
                 f->client_ptr = new_client;
-                f->streams = new_client->streams;
                 f->downstream_queue = new_client->downstream_queue;
 
             }
@@ -450,7 +458,7 @@ static int read_header(flow *f, struct packet_info *info){
             p += sizeof(struct sl_up_hdr);
             output_len -= sizeof(struct sl_up_hdr);
 
-            stream_table *streams = f->streams;
+            stream_table *streams = f->client_ptr->streams;
 
             //If a thread for this stream id exists, get the thread info and pipe data
             int32_t stream_pipe = -1;
@@ -506,7 +514,6 @@ static int read_header(flow *f, struct packet_info *info){
                 thread_data->initial_len = stream_len;
                 thread_data->stream_id = stream_id;
                 thread_data->pipefd = pipefd[0];
-                thread_data->streams = f->streams;
                 thread_data->downstream_queue = f->downstream_queue;
                 thread_data->client = f->client_ptr;
 
@@ -580,9 +587,9 @@ static void *proxy_covert_site(void *data){
 #endif
 
 
-    stream_table *streams = thread_data->streams;
     data_queue *downstream_queue = thread_data->downstream_queue;
     client *clnt = thread_data->client;
+    stream_table *streams = clnt->streams;
 
     struct socks_req *clnt_req = (struct socks_req *) p;
     p += 4;

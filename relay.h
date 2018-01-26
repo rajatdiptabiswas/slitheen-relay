@@ -31,6 +31,8 @@
 #include "flow.h"
 #include <stdint.h>
 
+typedef struct stream_table_st stream_table;
+
 typedef struct client_st {
     uint8_t slitheen_id[SLITHEEN_ID_LEN];
     stream_table *streams;

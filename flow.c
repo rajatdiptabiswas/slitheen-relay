@@ -140,7 +140,6 @@ flow *add_flow(struct packet_info *info) {
     new_flow->ds_frame_queue = smalloc(sizeof(frame_queue));
     new_flow->ds_frame_queue->first_frame = NULL;
 
-    new_flow->streams=NULL;
     new_flow->downstream_queue=NULL;
     new_flow->client_ptr=NULL;
 

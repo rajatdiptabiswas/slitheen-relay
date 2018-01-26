@@ -44,16 +44,6 @@
 struct client_st;
 typedef struct client_st client;
 
-typedef struct stream_st {
-    uint16_t stream_id;
-    int32_t pipefd;
-    struct stream_st *next;
-} stream;
-
-typedef struct stream_table_st {
-    stream *first;
-} stream_table;
-
 typedef struct packet_st{
     uint32_t seq_num;
     uint16_t len;
@@ -128,7 +118,6 @@ typedef struct flow_st {
     int application; /* indicates handshake is complete */
     int stall; /* indicates the Finished message is expected and relay station should stall */
     int resume_session;
-    stream_table *streams; //TODO delete (reference client)
     data_queue *downstream_queue; //TODO: delete (reference client)
     client *client_ptr;
 
