@@ -111,7 +111,7 @@ void *sniff_packets(void *args){
     pcap_t *wr_handle;
     char rd_errbuf[BUFSIZ];
     char wr_errbuf[BUFSIZ];
-    uint8_t MAC[ETHER_ADDR_LEN];
+    uint8_t mac[ETHER_ADDR_LEN];
     bpf_u_int32 mask;
     bpf_u_int32 net;
 
@@ -125,7 +125,7 @@ void *sniff_packets(void *args){
     int s = socket(AF_INET, SOCK_DGRAM, 0);
     strcpy(ifr.ifr_name, writedev);
     ioctl(s, SIOCGIFHWADDR, &ifr);
-    memcpy(MAC, ifr.ifr_hwaddr.sa_data, ETHER_ADDR_LEN);
+    memcpy(mac, ifr.ifr_hwaddr.sa_data, ETHER_ADDR_LEN);
     close(s);
 
     if (pcap_lookupnet(readdev, &net, &mask, rd_errbuf) == -1){
@@ -154,7 +154,7 @@ void *sniff_packets(void *args){
     }
 
     struct inject_args iargs;
-    iargs.mac_addr = MAC;
+    iargs.mac_addr = mac;
     iargs.write_dev = wr_handle;
 
 
