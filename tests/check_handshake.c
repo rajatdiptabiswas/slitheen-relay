@@ -279,17 +279,69 @@ START_TEST(full_handshake_extended){
 }
 END_TEST
 
+/* Note: only run this test if full_handshake_extended is run first */
 START_TEST(full_handshake_extended_resumed){
 
-    flow *f;
-    uint8_t *record;
+    flow *f = NULL;
+    uint8_t *data;
+    struct packet_info *info;
 
-    //populate record from file
-    if(!read_file("data/packet_tagged.dat", &record)){
+    info = smalloc(sizeof(struct packet_info));
+
+    /* Read in ClientHello message */
+    if(!read_file("data/frame_handshake_extended_resumed1.dat", &data)){
         ck_abort();
     }
+    extract_packet_headers(data, info);
 
+    //Make sure it recognized the tag
+    ck_assert_int_eq(check_handshake(info), 1);
 
+    //make sure it saved the flow
+    f = check_flow(info);
+    ck_assert_ptr_ne(f, NULL);
+
+    add_packet(f, info);
+
+    free(data);
+
+    /* ServerHello, CCS, Finished */
+    if(!read_file("data/frame_handshake_extended_resumed2.dat", &data)){
+        ck_abort();
+    }
+    extract_packet_headers(data, info);
+
+    f = check_flow(info);
+    ck_assert_ptr_ne(f, NULL);
+
+    add_packet(f, info);
+
+    //Verify Finished received
+    ck_assert_int_eq(f->in_encrypted, 2);
+
+    free(data);
+
+    /* CCS, Finished (from the client) */
+    if(!read_file("data/frame_handshake_extended_resumed3.dat", &data)){
+        ck_abort();
+    }
+    extract_packet_headers(data, info);
+
+    f = check_flow(info);
+    ck_assert_ptr_ne(f, NULL);
+
+    add_packet(f, info);
+
+    //Make sure both Finished messages were successfully received and decrypted
+
+    f = check_flow(info);
+    ck_assert_ptr_ne(f, NULL);
+    ck_assert_int_eq(f->out_encrypted, 2);
+    ck_assert_int_eq(f->application, 1);
+
+    remove_flow(f);
+
+    free(data);
 }
 END_TEST
 
@@ -303,6 +355,7 @@ Suite *tag_suite(void) {
     tcase_add_test(tc_core, full_handshake_regular);
 #if OPENSSL_VERSION_NUMBER >= 0x1010000eL
     tcase_add_test(tc_core, full_handshake_extended);
+    tcase_add_test(tc_core, full_handshake_extended_resumed);
 #endif
     suite_add_tcase(s, tc_core);
 
