@@ -1,6 +1,6 @@
 /* Name: webm.c
  *
- * This file contains functions for manipulating tagged flows. 
+ * This file contains functions for manipulating tagged flows.
  *
  * Slitheen - a decoy routing system for censorship resistance
  * Copyright (C) 2018 Cecylia Bocovich (cbocovic@uwaterloo.ca)
@@ -13,14 +13,14 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  * Additional permission under GNU GPL version 3 section 7
- * 
+ *
  * If you modify this Program, or any covered work, by linking or combining
- * it with the OpenSSL library (or a modified version of that library), 
+ * it with the OpenSSL library (or a modified version of that library),
  * containing parts covered by the terms of the OpenSSL Licence and the
  * SSLeay license, the licensors of this Program grant you additional
  * permission to convey the resulting work. Corresponding Source for a
@@ -55,7 +55,7 @@ int32_t parse_webm(flow *f, uint8_t *ptr, uint32_t len) {
 
     while (remaining_len){
         switch (f->webmstate){
-            case BEGIN_ELEMENT: 
+            case BEGIN_ELEMENT:
                 if(remaining_len < 8){
                     //this will be difficult to parse
                     //TODO: make this easier to deal with
@@ -75,7 +75,7 @@ int32_t parse_webm(flow *f, uint8_t *ptr, uint32_t len) {
 
                 if (header == 0x18538067) {
                     // do nothing. Move on to parsing sub-element
-                    
+
                 } else if (header == 0x1f43b675) {
                     f->webmstate = MEDIA;
 
@@ -108,10 +108,10 @@ int32_t parse_webm(flow *f, uint8_t *ptr, uint32_t len) {
             case MID_ELEMENT:
                 //The initial sequence of bytes contains everything up to the media
                 //segments
-                
+
                 if(f->remaining_element <= remaining_len){
                     //we have the entire element in this packet
-                    
+
                     p += f->remaining_element;
                     remaining_len -= f->remaining_element;
 
@@ -131,7 +131,7 @@ int32_t parse_webm(flow *f, uint8_t *ptr, uint32_t len) {
 
                 if(f->remaining_element <= remaining_len){
                     //we have the entire element in this packet
-                    
+
                     p += f->remaining_element;
                     remaining_len -= f->remaining_element;
 

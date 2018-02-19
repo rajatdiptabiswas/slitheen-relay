@@ -84,7 +84,7 @@ START_TEST(webm_parser) {
 
     //Parse the rest of the header
     parse_webm(f, p, 28);
-    
+
     ck_assert_int_eq(f->remaining_element, 0);
 
     ck_assert_int_eq(f->webmstate, BEGIN_ELEMENT);
