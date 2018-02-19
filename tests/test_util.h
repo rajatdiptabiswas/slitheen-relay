@@ -28,6 +28,7 @@
 #define TEST_UTIL_H
 
 int32_t read_file(const char *path, uint8_t **target);
+int32_t read_file_len(const char *path, uint8_t **target, int32_t *len);
 
 #endif /* TEST_UTIL_H */
 

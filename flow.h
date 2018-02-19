@@ -164,6 +164,8 @@ typedef struct flow_st {
     //for downstream processing
     uint32_t remaining_record_len;
     uint8_t httpstate;
+    uint8_t webmstate;
+    uint64_t remaining_element;
     uint32_t remaining_response_len;
     uint8_t replace_response;
 

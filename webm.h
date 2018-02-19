@@ -1,9 +1,5 @@
-/* Name: test_util.c
- *
- * This file contains functions for manipulating tagged flows. 
- *
- * Slitheen - a decoy routing system for censorship resistance
- * Copyright (C) 2017 Cecylia Bocovich (cbocovic@uwaterloo.ca)
+/* Slitheen - a decoy routing system for censorship resistance
+ * Copyright (C) 2018 Cecylia Bocovich (cbocovic@uwaterloo.ca)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,58 +24,18 @@
  * for the parts of the OpenSSL library used as well as that of the covered
  * work.
  */
+#ifndef WEBM_H
+#define WEBM_H
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <check.h>
+#include "flow.h"
 
-#include "../util.h"
+int32_t parse_webm(flow *f, uint8_t *ptr, uint32_t len);
 
-int32_t read_file(const char *path, uint8_t **target){
+/* WebM states */
 
-    FILE *fp;
-    int32_t fsize;
+#define BEGIN_ELEMENT 0x01
+#define MID_ELEMENT 0x02
+#define MEDIA 0x03
 
-    fp = fopen(path, "rb");
-    if (fp == NULL) {
-        perror("fopen");
-        return 0;
-    }
+#endif /* WEBM_H */
 
-    fseek(fp, 0, SEEK_END);
-    fsize = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-    *target = smalloc(fsize);
-
-    int32_t result = fread(*target, fsize, 1, fp);
-
-    fclose(fp);
-
-    return result;
-}
-
-int32_t read_file_len(const char *path, uint8_t **target, int32_t *len){
-
-    FILE *fp;
-    int32_t fsize;
-
-    fp = fopen(path, "rb");
-    if (fp == NULL) {
-        perror("fopen");
-        return 0;
-    }
-
-    fseek(fp, 0, SEEK_END);
-    fsize = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-    *target = smalloc(fsize);
-
-    int32_t result = fread(*target, fsize, 1, fp);
-
-    *len = fsize;
-
-    fclose(fp);
-
-    return result;
-}
