@@ -358,7 +358,7 @@ int extract_parameters(flow *f, uint8_t *hs){
 
         f->dh = dh;
     } else if (f->keyex_alg == 2){
-        EC_KEY *ecdh;
+        EC_KEY *ecdh = NULL;
         EC_GROUP *ngroup;
         const EC_GROUP *group;
 
