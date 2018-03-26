@@ -19,14 +19,14 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  * Additional permission under GNU GPL version 3 section 7
- * 
+ *
  * If you modify this Program, or any covered work, by linking or combining
- * it with the OpenSSL library (or a modified version of that library), 
+ * it with the OpenSSL library (or a modified version of that library),
  * containing parts covered by the terms of the OpenSSL Licence and the
  * SSLeay license, the licensors of this Program grant you additional
  * permission to convey the resulting work. Corresponding Source for a
@@ -56,6 +56,7 @@
 #include "flow.h"
 #include "crypto.h"
 #include "util.h"
+#include "webm.h"
 
 /* Data structures */
 struct proxy_thread_data {
@@ -458,7 +459,7 @@ static int read_header(flow *f, struct packet_info *info){
                 uint8_t *initial_data = smalloc(stream_len);
                 memcpy(initial_data, p, stream_len);
 
-                struct proxy_thread_data *thread_data = 
+                struct proxy_thread_data *thread_data =
                     smalloc(sizeof(struct proxy_thread_data));
                 thread_data->initial_data = initial_data;
                 thread_data->initial_len = stream_len;
@@ -736,7 +737,7 @@ static void *proxy_covert_site(void *data){
     }
 
     DEBUG_MSG(DEBUG_PROXY, "Closing connection for stream %d\n", stream_id);
-    //remove self from list 
+    //remove self from list
     stream *last = streams->first;
     stream *prev = last;
     if(streams->first != NULL){
@@ -800,7 +801,7 @@ err:
  *  censored queue, padding with garbage bytes if no more
  *  censored data exists.
  *
- *  Inputs: 
+ *  Inputs:
  *  	f: the tagged flow
  *  	data: a pointer to the received packet's application
  *  		data
@@ -809,7 +810,7 @@ err:
  *  		application-level bytes in missing packets
  *
  *  Output:
- *  	Returns 0 on sucess 
+ *  	Returns 0 on success
  */
 static int process_downstream(flow *f, int32_t offset, struct packet_info *info){
 
@@ -866,7 +867,7 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
 
 
             if(f->partial_record_header_len > 0){
-                memcpy(f->partial_record_header+ f->partial_record_header_len, 
+                memcpy(f->partial_record_header+ f->partial_record_header_len,
                         p, RECORD_HEADER_LEN - f->partial_record_header_len);
                 record_hdr = (struct record_header *) f->partial_record_header;
             } else {
@@ -932,7 +933,7 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
             } else {
 
                 //partially decrypt record
-                n = partial_aes_gcm_tls_cipher(f, record_ptr, record_ptr, f->partial_record_len, 0);
+                n = partial_aes_gcm_tls_cipher(f, record_ptr, record_ptr, f->partial_record_len, 0, 0);
                 if(n <= 0){
                     //do something smarter here
                     printf("Decryption failed\n");
@@ -1010,22 +1011,35 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
                         DEBUG_MSG(DEBUG_DOWN, "Found and replaced leaf header\n");
 
                     } else {
-                        //check for video
+                        //check for video/audio
                         len_ptr = strstr((const char *) p, "Content-Type: video/webm");
                         if(len_ptr != NULL){
                             printf("Found webm resource!\n");
                             f->replace_response = 1;
-                            memcpy(len_ptr + 14, "sli/theenv", 10);
+                            f->webmstate = BEGIN_ELEMENT;
+                            //memcpy(len_ptr + 14, "sli/theenv", 10);
 
                             char *c = len_ptr + 14+10;
                             while(c[0] != '\r'){
                                 c[0] = ' ';
                                 c++;
                             }
-                        }
+                        } else {
+                            len_ptr = strstr((const char *) p, "Content-Type: hfjdkahfk"); //audio/webm");
+                            if(len_ptr != NULL){
+                                printf("Found webm resource!\n");
+                                f->replace_response = 1;
+                                f->webmstate = BEGIN_ELEMENT;
+                                //memcpy(len_ptr + 14, "sli/theena", 10);
 
-                        else {
-                            f->replace_response = 0;
+                                char *c = len_ptr + 14+10;
+                                while(c[0] != '\r'){
+                                    c[0] = ' ';
+                                    c++;
+                                }
+                            } else {
+                                f->replace_response = 0;
+                            }
                         }
                     }
 
@@ -1112,6 +1126,10 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
                 case MID_CONTENT:
                     //check if content is replaceable
                     if(f->remaining_response_len > remaining_record_len){
+                        if (f->webmstate) {
+                            //parse_webm(f, p, remaining_record_len);
+                        }
+
                         if(f->replace_response){
                             fill_with_downstream(f, p, remaining_record_len);
 
@@ -1122,13 +1140,16 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
                         f->remaining_response_len -= remaining_record_len;
                         p += remaining_record_len;
 
-
                         remaining_record_len = 0;
                     } else {
+                        if (f->webmstate) {
+                            //parse_webm(f, p, f->remaining_response_len);
+                        }
+
                         if(f->replace_response){
                             fill_with_downstream(f, p, remaining_record_len);
 
-                            DEBUG_MSG(DEBUG_DOWN, "Replaced leaf with:\n");
+                            DEBUG_MSG(DEBUG_DOWN, "ERR: Replaced leaf with:\n");
                             DEBUG_BYTES(DEBUG_DOWN, p, remaining_record_len);
                         }
                         remaining_record_len -= f->remaining_response_len;
@@ -1241,7 +1262,7 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
                 memcpy(f->partial_record_dec + partial_offset, record_ptr+partial_offset, n + EVP_GCM_TLS_EXPLICIT_IV_LEN - partial_offset);
             } //otherwise, this packet contains only part of the tag
 
-            n = partial_aes_gcm_tls_cipher(f, record_ptr, record_ptr, n+ EVP_GCM_TLS_EXPLICIT_IV_LEN, 1);
+            n = partial_aes_gcm_tls_cipher(f, record_ptr, record_ptr, n+ EVP_GCM_TLS_EXPLICIT_IV_LEN, 0, 1);
             if(n < 0){
                 printf("Partial decryption failed!\n");
                 free(record_ptr);
@@ -1296,6 +1317,10 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
                 free(record_ptr);
                 return 0;
             }
+
+            DEBUG_MSG(DEBUG_DOWN, "Re-encrypted bytes:\n");
+            DEBUG_BYTES(DEBUG_DOWN, record_ptr, n);
+
             p = record_ptr;
         }
 

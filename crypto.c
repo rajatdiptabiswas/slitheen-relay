@@ -1626,30 +1626,35 @@ static int check_tag(byte key[16], const byte privkey[PTWIST_BYTES],
 #define GCM_CTX_LEN 380 + sizeof(block128_f)
 
 int partial_aes_gcm_tls_cipher(flow *f, unsigned char *out,
-        const unsigned char *in, size_t len, uint8_t enc)
+        const unsigned char *in, size_t len, size_t offset, uint8_t enc)
 {
 
-    // Encrypt/decrypt must be performed in place 
+    // Encrypt/decrypt must be performed in place
     int rv = -1;
     if (out != in
             || len < (EVP_GCM_TLS_EXPLICIT_IV_LEN + EVP_GCM_TLS_TAG_LEN))
         return -1;
 
+    //if we're missing the first part of the record, abort
+    if((offset > EVP_GCM_TLS_EXPLICIT_IV_LEN) && (f->partial_record_len < EVP_GCM_TLS_EXPLICIT_IV_LEN )){
+        return -1;
+    }
     //set IV
     uint8_t *iv = smalloc(f->gcm_ctx_ivlen);
     memcpy(iv, f->gcm_ctx_iv, EVP_GCM_TLS_FIXED_IV_LEN);
 
+    //make encryption/decryption buffer
+    uint8_t *data = scalloc(1, offset + len);
+    memset(data, 0, offset); //dummy data to offset
+    memcpy(data+offset, in, len);
+
     if(enc){
-        memcpy(iv + f->gcm_ctx_ivlen - EVP_GCM_TLS_EXPLICIT_IV_LEN , out, EVP_GCM_TLS_EXPLICIT_IV_LEN);
-        memcpy(out, iv + f->gcm_ctx_ivlen - EVP_GCM_TLS_EXPLICIT_IV_LEN, EVP_GCM_TLS_EXPLICIT_IV_LEN);
+        memcpy(iv + f->gcm_ctx_ivlen - EVP_GCM_TLS_EXPLICIT_IV_LEN , f->partial_record_dec, EVP_GCM_TLS_EXPLICIT_IV_LEN);
     } else {
         memcpy(iv + f->gcm_ctx_ivlen - EVP_GCM_TLS_EXPLICIT_IV_LEN , f->partial_record, EVP_GCM_TLS_EXPLICIT_IV_LEN);
     }
     CRYPTO_gcm128_setiv(f->gcm_ctx_out, iv, f->gcm_ctx_ivlen);
 
-    // Fix buffer and length to point to payload
-    in += EVP_GCM_TLS_EXPLICIT_IV_LEN;
-    out += EVP_GCM_TLS_EXPLICIT_IV_LEN;
     len -= EVP_GCM_TLS_EXPLICIT_IV_LEN;
 
     //set AAD
@@ -1673,17 +1678,28 @@ int partial_aes_gcm_tls_cipher(flow *f, unsigned char *out,
 
     CRYPTO_gcm128_aad(f->gcm_ctx_out, buf, 13);
 
+    // Fix buffer and length to point to payload
+    uint8_t *p = data + EVP_GCM_TLS_EXPLICIT_IV_LEN;
+
     if(enc){
-        if ((len > 16) && CRYPTO_gcm128_encrypt(f->gcm_ctx_out, in, out, len))
+        if ((len > 16) && CRYPTO_gcm128_encrypt(f->gcm_ctx_out, p, p, len+offset))
             goto err;
     } else {
-        if ((len > 16) && CRYPTO_gcm128_decrypt(f->gcm_ctx_out, in, out, len))
+        if ((len > 16) && CRYPTO_gcm128_decrypt(f->gcm_ctx_out, p, p, len+offset))
             goto err;
     }
-    rv = len;
+
+    //copy data from buffer to output
+    memcpy(out, data+offset, len + EVP_GCM_TLS_EXPLICIT_IV_LEN);
+    if(offset > 0){
+        rv = len + EVP_GCM_TLS_EXPLICIT_IV_LEN;
+    } else {
+        rv = len;
+    }
 
 err:
     free(iv);
+    free(data);
 
     return rv;
 
