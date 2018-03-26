@@ -85,6 +85,8 @@ int32_t parse_webm(flow *f, uint8_t *ptr, uint32_t len) {
                     p[2] = 0x6c; //'l'
                     p[3] = 0x69; //'i'
 
+                    printf("Replaced cluster with slitheen segment!\n");
+
                 } else {
                     //we want to skip this element
                     f->webmstate = MID_ELEMENT;

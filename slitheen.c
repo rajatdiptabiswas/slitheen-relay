@@ -258,11 +258,39 @@ void process_packet(struct inject_args *iargs, const struct pcap_pkthdr *header,
 
             if(observed->application){
                 if(seq_num > expected_seq){
-                    //For now, enters into FORFEIT state
-                    //TODO: change upstream behaviour to try to mask slitheen hdr
-                    //printf("ERROR: future packet in app data, forfeiting flow\n");
+                    /*For now, enters into FORFEIT state
+                    fprintf(stderr,"ERROR: future packet in app data, forfeiting flow\n");
+                    fflush(stderr);
                     remove_flow(observed);
-                    goto err;
+                    goto err;*/
+
+                    //Delay and process later
+                    frame *new_frame = scalloc(1, sizeof(frame));
+                    new_frame->iargs = iargs;
+                    new_frame->packet = packet;
+                    new_frame->header = header;
+                    new_frame->seq_num = seq_num;
+                    new_frame->next = NULL;
+                    frame_queue *queue = (incoming) ? observed->ds_frame_queue : observed->us_frame_queue;
+                    printf("Delay processing of frame (seq = %u )\n", seq_num);
+
+                    //add to end of list
+                    if(queue->first_frame == NULL){
+                        queue->first_frame = new_frame;
+                    } else {
+                        frame *last = queue->first_frame;
+                        while(last->next != NULL){
+                            last = last->next;
+                        }
+                        last->next = new_frame;
+                    }
+
+                    free(info);
+                    observed->ref_ctr--;
+                    printf("Misordered packet. %p ref_ctr %d\n", observed, observed->ref_ctr);
+
+                    return; //TODO: fix terrible spaghetti returns
+
                 }
 
                 replace_packet(observed, info);
