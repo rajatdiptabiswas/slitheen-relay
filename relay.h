@@ -54,6 +54,7 @@ extern client_table *clients;
 int replace_packet(flow *f, struct packet_info *info);
 uint16_t tcp_checksum(struct packet_info *info);
 
+int fill_with_downstream(flow *f, uint8_t *data, int32_t length);
 #define BEGIN_HEADER 0x10
 #define PARSE_HEADER 0x20
 #define MID_CONTENT 0x30

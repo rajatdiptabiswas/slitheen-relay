@@ -186,6 +186,7 @@ flow *add_flow(struct packet_info *info) {
     new_flow->httpstate = PARSE_HEADER;
     new_flow->webmstate = 0;
     new_flow->remaining_element = 0;
+    new_flow->element_header = 0;
     new_flow->replace_response = 0;
 
     new_flow->ecdh = NULL;

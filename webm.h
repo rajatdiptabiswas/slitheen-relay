@@ -33,9 +33,10 @@ int32_t parse_webm(flow *f, uint8_t *ptr, uint32_t len);
 
 /* WebM states */
 
-#define BEGIN_ELEMENT 0x01
-#define MID_ELEMENT 0x02
-#define MEDIA 0x03
+#define WEBM_HEADER 0x01
+#define PARSE_ELEMENT 0x02
+#define MID_ELEMENT 0x03
+#define BLOCK_HEADER 0x04
 
 #endif /* WEBM_H */
 

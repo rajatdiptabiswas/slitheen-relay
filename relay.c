@@ -93,7 +93,6 @@ typedef struct stream_table_st {
 
 static int process_downstream(flow *f, int32_t offset, struct packet_info *info);
 static int read_header(flow *f, struct packet_info *info);
-static int fill_with_downstream(flow *f, uint8_t *data, int32_t length);
 static void *proxy_covert_site(void *data);
 
 /** Called when a TLS application record is received for a
@@ -243,7 +242,7 @@ static int read_header(flow *f, struct packet_info *info){
                 last->next = new_block;
             }
 
-            f->upstream_remaining = record_length - new_block->len;
+            f->upstream_remaining = record_length + RECORD_HEADER_LEN - new_block->len;
             return 0;
         }
     }
@@ -270,7 +269,9 @@ static int read_header(flow *f, struct packet_info *info){
     }
 
     DEBUG_MSG(DEBUG_UP, "Upstream data: (%x:%d > %x:%d )\n",info->ip_hdr->src.s_addr,ntohs(info->tcp_hdr->src_port), info->ip_hdr->dst.s_addr, ntohs(info->tcp_hdr->dst_port));
-    DEBUG_MSG(DEBUG_UP, "%s\n", decrypted_data+EVP_GCM_TLS_EXPLICIT_IV_LEN);
+    DEBUG_MSG(DEBUG_UP, "Data for flow %p:\n%s\n", f, decrypted_data+EVP_GCM_TLS_EXPLICIT_IV_LEN);
+    DEBUG_MSG(DEBUG_UP, "Bytes for flow %p (%d bytes):\n", f, decrypted_len);
+    DEBUG_BYTES(DEBUG_UP, (decrypted_data + EVP_GCM_TLS_EXPLICIT_IV_LEN), decrypted_len);
 
     /* search through decrypted data for x-ignore */
     char *header_ptr = strstr((const char *) decrypted_data+EVP_GCM_TLS_EXPLICIT_IV_LEN, "X-Slitheen");
@@ -1015,8 +1016,8 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
                         len_ptr = strstr((const char *) p, "Content-Type: video/webm");
                         if(len_ptr != NULL){
                             printf("Found webm resource!\n");
-                            f->replace_response = 1;
-                            f->webmstate = BEGIN_ELEMENT;
+                            f->replace_response = 0;
+                            f->webmstate = WEBM_HEADER;
                             //memcpy(len_ptr + 14, "sli/theenv", 10);
 
                             char *c = len_ptr + 14+10;
@@ -1028,8 +1029,8 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
                             len_ptr = strstr((const char *) p, "Content-Type: hfjdkahfk"); //audio/webm");
                             if(len_ptr != NULL){
                                 printf("Found webm resource!\n");
-                                f->replace_response = 1;
-                                f->webmstate = BEGIN_ELEMENT;
+                                f->replace_response = 0;
+                                f->webmstate = WEBM_HEADER;
                                 //memcpy(len_ptr + 14, "sli/theena", 10);
 
                                 char *c = len_ptr + 14+10;
@@ -1127,7 +1128,10 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
                     //check if content is replaceable
                     if(f->remaining_response_len > remaining_record_len){
                         if (f->webmstate) {
-                            //parse_webm(f, p, remaining_record_len);
+                            parse_webm(f, p, remaining_record_len);
+                            if(f->remaining_response_len - remaining_record_len == 0){
+                                fprintf(stderr, "quitting\n");
+                            }
                         }
 
                         if(f->replace_response){
@@ -1143,7 +1147,7 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
                         remaining_record_len = 0;
                     } else {
                         if (f->webmstate) {
-                            //parse_webm(f, p, f->remaining_response_len);
+                            parse_webm(f, p, f->remaining_response_len);
                         }
 
                         if(f->replace_response){
@@ -1248,7 +1252,7 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
             }
         }
 
-        if(changed && f->replace_response){
+        if(changed && (f->replace_response || f->webmstate)){
             DEBUG_MSG(DEBUG_DOWN, "Resource is now:\n");
             DEBUG_BYTES(DEBUG_DOWN, (record_ptr + EVP_GCM_TLS_EXPLICIT_IV_LEN), n);
             DEBUG_MSG(DEBUG_DOWN, "Text:\n%s\n", record_ptr+EVP_GCM_TLS_EXPLICIT_IV_LEN);
@@ -1354,7 +1358,7 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
  *  	length: The length of the downstream data required
  *
  */
-static int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
+int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 
     uint8_t *p = data;
     int32_t remaining = length;

@@ -34,6 +34,7 @@
 
 #include "webm.h"
 #include "flow.h"
+#include "relay.h"
 
 static uint64_t variable_length(uint8_t *p, uint8_t *int_length);
 static uint32_t variable_header(uint8_t *p, uint8_t *int_length);
@@ -55,97 +56,102 @@ int32_t parse_webm(flow *f, uint8_t *ptr, uint32_t len) {
 
     while (remaining_len){
         switch (f->webmstate){
-            case BEGIN_ELEMENT:
+            uint8_t header_len, int_len;
+            case WEBM_HEADER:
                 if(remaining_len < 8){
+                    //TODO:right now this assumes we'll have the header + size
+                    // but later we should make it work with just the header
+                    // also the size should be 8 bytes max
                     //this will be difficult to parse
-                    //TODO: make this easier to deal with
                     printf("PARSE FAIL: too little len remaining\n");
                     return 1;
                 }
 
-                //The only elements we care about are:
-                //  the segment header (0x18538067), and
-                //  the cluster header (0x1f43b675).
-
                 //Parse header:
-                uint8_t header_len;
-                uint32_t header = variable_header(p, &header_len);
+                f->element_header = variable_header(p, &header_len);
 
-                printf("Received header: %x\n", header);
+                printf("Received header: %x\n", f->element_header);
 
-                if (header == 0x18538067) {
-                    // do nothing. Move on to parsing sub-element
-
-                } else if (header == 0x1f43b675) {
-                    f->webmstate = MEDIA;
-
-                    //replace with slitheen header
-                    p[0] = 0x16; //'SYN'
-                    p[1] = 0x73; //'s'
-                    p[2] = 0x6c; //'l'
-                    p[3] = 0x69; //'i'
-
-                    printf("Replaced cluster with slitheen segment!\n");
-
-                } else {
-                    //we want to skip this element
-                    f->webmstate = MID_ELEMENT;
+                if(f->element_header == 0xa3){
+                    //we want to replace this block
+                    printf("Replaced simple block!\n");
+                    p[0] = 0xef;
                 }
 
                 p += header_len;
                 remaining_len -= header_len;
 
                 //parse length of header
-                uint8_t int_len;
-                uint64_t element_len = variable_length(p, &int_len);
+                f->remaining_element = variable_length(p, &int_len);
 
                 p += int_len;
                 remaining_len -= int_len;
 
-                printf("element length: %lu\n", element_len);
+                printf("element length: %lu\n", f->remaining_element);
 
-                f->remaining_element = element_len;
-
-                break;
-            case MID_ELEMENT:
-                //The initial sequence of bytes contains everything up to the media
-                //segments
-
-                if(f->remaining_element <= remaining_len){
-                    //we have the entire element in this packet
-
-                    p += f->remaining_element;
-                    remaining_len -= f->remaining_element;
-
-                    f->remaining_element = 0;
-                    f->webmstate = BEGIN_ELEMENT;
-                } else {
-                    //still have more of this element to process
-
-                    p += remaining_len;
-                    f->remaining_element -= remaining_len;
-                    remaining_len = 0;
-                }
+                f->webmstate = PARSE_ELEMENT;
 
                 break;
-            case MEDIA:
-                //We're replacing all of this element
+            case PARSE_ELEMENT:
 
-                if(f->remaining_element <= remaining_len){
-                    //we have the entire element in this packet
+                switch(f->element_header) {
 
-                    p += f->remaining_element;
-                    remaining_len -= f->remaining_element;
+                    case  0x18538067: //segment
+                    case 0x1f43b675: //cluster
+                    // do nothing. Move on to parsing sub-element
+                    f->webmstate = WEBM_HEADER;
 
-                    f->remaining_element = 0;
-                    f->webmstate = BEGIN_ELEMENT;
-                } else {
-                    //still have more of this element to process
+                    break;
+                    case 0xa3: //simple block
 
-                    p += remaining_len;
-                    f->remaining_element -= remaining_len;
-                    remaining_len = 0;
+                    f->webmstate = BLOCK_HEADER;
+
+                    break;
+                    default:
+                    //we want to skip this element
+                    f->webmstate = MID_ELEMENT;
+                    break;
+
                 }
+                break;
+            case MID_ELEMENT: {
+
+                uint32_t parse_len = (f->remaining_element <= remaining_len) ?
+                    f->remaining_element : remaining_len;
+
+                if (f->element_header == 0xa3) {
+                    //replace content
+                    printf("Replaceable data (%d bytes):\n", parse_len);
+                    for(int i=0; i< parse_len; i++){
+                        printf("%02x ", p[i]);
+                    }
+                    printf("\n");
+
+                    fill_with_downstream(f, p, parse_len);
+                }
+
+                p += parse_len;
+                remaining_len -= parse_len;
+                f->remaining_element -= parse_len;
+
+                if (f->remaining_element == 0) {
+                    f->webmstate = WEBM_HEADER;
+                }
+                break;
+            }
+            case BLOCK_HEADER:
+                //TODO: expand to handle lacing, non-simple blocks
+                if(remaining_len < 4){
+                    //TODO: fix this somehow
+                    printf("PARSE FAIL: too little len remaining\n");
+                    return 1;
+                }
+
+                p += 4;
+                f->remaining_element -= 4;
+                remaining_len -= 4;
+
+                f->webmstate = MID_ELEMENT;
 
                 break;
         }
