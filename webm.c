@@ -72,7 +72,8 @@ int32_t parse_webm(flow *f, uint8_t *ptr, uint32_t len) {
 
                 printf("Received header: %x\n", f->element_header);
 
-                if(f->element_header == 0xa3){
+                if((f->element_header == 0xa3) &&
+                        (remaining_len >= (SLITHEEN_HEADER_LEN + 9))){
                     //we want to replace this block
                     printf("Replaced simple block!\n");
                     p[0] = 0xef;
@@ -121,13 +122,14 @@ int32_t parse_webm(flow *f, uint8_t *ptr, uint32_t len) {
 
                 if (f->element_header == 0xa3) {
                     //replace content
-                    printf("Replaceable data (%d bytes):\n", parse_len);
+
+                    fill_with_downstream(f, p, parse_len);
+
+                    printf("Replaced data (%d bytes):\n", parse_len);
                     for(int i=0; i< parse_len; i++){
                         printf("%02x ", p[i]);
                     }
                     printf("\n");
-
-                    fill_with_downstream(f, p, parse_len);
                 }
 
                 p += parse_len;
