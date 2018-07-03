@@ -133,9 +133,35 @@ void *sniff_packets(void *args){
         exit(2);
     }
 
-    rd_handle = pcap_open_live(readdev, BUFSIZ, 0, 0, rd_errbuf);
+    rd_handle = pcap_create(readdev, rd_errbuf);
     if (rd_handle == NULL){
-        fprintf(stderr, "Couldn't open device %s: %s\n", readdev, rd_errbuf);
+        fprintf(stderr, "Couldn't create device %s: %s\n", readdev, rd_errbuf);
+    }
+
+    if(pcap_set_snaplen(rd_handle, BUFSIZ)){
+        fprintf(stderr, "Failed to set snaplen on device %s\n", readdev);
+        exit(2);
+    }
+
+    if(pcap_set_promisc(rd_handle, 0)){
+        fprintf(stderr, "Failed to set promiscuous mode on device %s\n", readdev);
+        exit(2);
+    }
+
+    if(pcap_set_timeout(rd_handle, 0)){
+        fprintf(stderr, "Failed to set read timeout on device %s\n", readdev);
+        exit(2);
+    }
+
+    //Increase buffer size to 2GiB
+    if(pcap_set_buffer_size(rd_handle, 2147484000)) {
+        fprintf(stderr, "Failed to set buffer size for device\n");
+        exit(2);
+    }
+
+    if(pcap_activate(rd_handle)){
+	fprintf(stderr, "failed to activate device.\n");
+	exit(2);
     }
 
     if(pcap_datalink(rd_handle) != DLT_EN10MB) {
@@ -244,7 +270,7 @@ void process_packet(struct inject_args *iargs, const struct pcap_pkthdr *header,
         uint8_t *p = info->app_data;
 
         if(data_to_fill){ //retransmit
-            printf("Retransmiting data (%u:%u)\n", seq_num, seq_num + info->app_data_len);
+            printf("Retransmiting data for flow %p (%u:%u)\n", observed, seq_num, seq_num + info->app_data_len);
             retransmit(observed, info, data_to_fill);
         }
 
@@ -293,7 +319,13 @@ void process_packet(struct inject_args *iargs, const struct pcap_pkthdr *header,
 
                 }
 
-                replace_packet(observed, info);
+		if(replace_packet(observed, info)){
+			printf("error in flow\n");
+			remove_flow(observed);
+			//TODO: figure out how to not need this
+			tcp_checksum(info);//update checksum
+			goto err;
+		}
             } else {
                 //We're still in the TLS handshake; hold packets misordered packets
 
@@ -382,6 +414,7 @@ err:
     free(info);//Note: don't free this while a thread is using it
 
     inject_packet(iargs, header, packet);
+
 
     return;
 

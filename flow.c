@@ -198,6 +198,7 @@ flow *add_flow(struct packet_info *info) {
     EVP_DigestInit_ex(new_flow->hs_md_ctx, md, NULL);
 
     new_flow->cipher = NULL;
+    new_flow->keyex_alg = 0;
     new_flow->clnt_read_ctx = NULL;
     new_flow->clnt_write_ctx = NULL;
     new_flow->srvr_read_ctx = NULL;
@@ -517,6 +518,8 @@ err:
  *  	0 on success, 1 on failure
  */
 int remove_flow(flow *f) {
+
+    printf("Removed flow %p\n", f);
 
     sem_wait(&flow_table_lock);
     //decrement reference counter

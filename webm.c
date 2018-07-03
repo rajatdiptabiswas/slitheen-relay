@@ -70,7 +70,7 @@ int32_t parse_webm(flow *f, uint8_t *ptr, uint32_t len) {
                 //Parse header:
                 f->element_header = variable_header(p, &header_len);
 
-                printf("Received header: %x\n", f->element_header);
+                printf("Received header: %x | %lx \n", f->element_header, (long) *(p+header_len));
 
                 if((f->element_header == 0xa3) &&
                         (remaining_len >= (SLITHEEN_HEADER_LEN + 9))){
@@ -125,11 +125,13 @@ int32_t parse_webm(flow *f, uint8_t *ptr, uint32_t len) {
 
                     fill_with_downstream(f, p, parse_len);
 
+/*
                     printf("Replaced data (%d bytes):\n", parse_len);
                     for(int i=0; i< parse_len; i++){
                         printf("%02x ", p[i]);
                     }
                     printf("\n");
+*/
                 }
 
                 p += parse_len;

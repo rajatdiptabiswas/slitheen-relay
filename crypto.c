@@ -824,6 +824,10 @@ int compute_master_secret(flow *f){
 #if OPENSSL_VERSION_NUMBER >= 0x1010000eL
         }
 #endif
+    } else {
+        //keyex_alg not set, goto error
+        printf("keyex_alg not set\n");
+        goto err;
     }
 
     /*Generate master secret */
@@ -1343,8 +1347,8 @@ int super_encrypt(client *c, uint8_t *data, uint32_t len){
     uint8_t output[EVP_MAX_MD_SIZE];
 
     //first encrypt the header	
-    DEBUG_MSG(DEBUG_CRYPTO, "super encrypt: Plaintext Header:\n");
-    DEBUG_BYTES(DEBUG_CRYPTO, p, SLITHEEN_HEADER_LEN);
+    DEBUG_MSG(DEBUG_PROXY, "super encrypt: Plaintext Header:\n");
+    DEBUG_BYTES(DEBUG_PROXY, p, SLITHEEN_HEADER_LEN);
 
     hdr_ctx = EVP_CIPHER_CTX_new();
 
@@ -1362,8 +1366,8 @@ int super_encrypt(client *c, uint8_t *data, uint32_t len){
         goto end;
     }
 
-    DEBUG_MSG(DEBUG_CRYPTO, "super encrypt: Encrypted Header (%d bytes):\n", out_len);
-    DEBUG_BYTES(DEBUG_CRYPTO, p, out_len);
+    DEBUG_MSG(DEBUG_PROXY, "super encrypt: Encrypted Header (%d bytes):\n", out_len);
+    DEBUG_BYTES(DEBUG_PROXY, p, out_len);
 
     if(len == 0){ //only encrypt header: body contains garbage bytes
         retval = 1;

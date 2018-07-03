@@ -113,10 +113,10 @@ int replace_packet(flow *f, struct packet_info *info){
         return 0;
     }
 
-    DEBUG_MSG(DEBUG_FLOW, "Flow: %x:%d > %x:%d (%s)\n", info->ip_hdr->src.s_addr, ntohs(info->tcp_hdr->src_port), info->ip_hdr->dst.s_addr, ntohs(info->tcp_hdr->dst_port), (info->ip_hdr->src.s_addr != f->src_ip.s_addr)? "incoming":"outgoing");
-    DEBUG_MSG(DEBUG_FLOW, "ID number: %u\n", htonl(info->ip_hdr->id));
-    DEBUG_MSG(DEBUG_FLOW, "Sequence number: %u\n", htonl(info->tcp_hdr->sequence_num));
-    DEBUG_MSG(DEBUG_FLOW, "Acknowledgement number: %u\n", htonl(info->tcp_hdr->ack_num));
+    DEBUG_MSG(DEBUG_PROXY, "Flow %p: %x:%d > %x:%d (%s)\n", f, info->ip_hdr->src.s_addr, ntohs(info->tcp_hdr->src_port), info->ip_hdr->dst.s_addr, ntohs(info->tcp_hdr->dst_port), (info->ip_hdr->src.s_addr != f->src_ip.s_addr)? "incoming":"outgoing");
+    DEBUG_MSG(DEBUG_PROXY, "ID number: %u\n", htonl(info->ip_hdr->id));
+    DEBUG_MSG(DEBUG_PROXY, "Sequence number: %u\n", htonl(info->tcp_hdr->sequence_num));
+    DEBUG_MSG(DEBUG_PROXY, "Acknowledgement number: %u\n", htonl(info->tcp_hdr->ack_num));
 
     if(info->app_data_len <= 0){
         return 0;
@@ -133,10 +133,12 @@ int replace_packet(flow *f, struct packet_info *info){
 
         uint32_t offset = htonl(info->tcp_hdr->sequence_num) - f->downstream_seq_num;
         if(offset == 0)
-            f->downstream_seq_num += info->app_data_len;
+		f->downstream_seq_num += info->app_data_len;
 
-        /* if incoming, replace with data from queue */
-        process_downstream(f, offset, info);
+	/* if incoming, replace with data from queue */
+	if(process_downstream(f, offset, info)){
+		return 1;
+	}
 
     }
     return 0;
@@ -937,12 +939,13 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
                 n = partial_aes_gcm_tls_cipher(f, record_ptr, record_ptr, f->partial_record_len, 0, 0);
                 if(n <= 0){
                     //do something smarter here
-                    printf("Decryption failed\n");
+                    fprintf(stderr, "Decryption failed, forfeiting flow\n");
                     if(f->partial_record_header_len > 0){
                         f->partial_record_header_len = 0;
                         free(f->partial_record_header);
                     }
                     free(record_ptr);
+			f->httpstate = FORFEIT_REST;
                     return 0;//TODO: goto err to free record_ptr
                 }
 
@@ -1345,6 +1348,7 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
     if(changed){
         tcp_checksum(info);
     }
+printf("returning from process downstream\n");
 
     return 0;
 }
@@ -1366,7 +1370,12 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 
     data_queue *downstream_queue = f->downstream_queue;
     client *client_ptr = f->client_ptr;
-
+/*
+    FILE *fp;
+    fp = fopen("replaced_data.out", "a");
+    fprintf(fp, "%d\n", length);
+    fclose(fp);
+*/
     if(client_ptr == NULL){
         //printf("ERROR: no client\n");
         return 1;
@@ -1376,7 +1385,7 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
     //Fill as much as we can from the censored_queue
     //Note: need enough for the header and one block of data (16 byte IV, 16 byte
     //		block, 16 byte MAC) = header_len + 48.
-    while((remaining > (SLITHEEN_HEADER_LEN + 48)) && downstream_queue != NULL && downstream_queue->first_block != NULL){
+    while((remaining > (SLITHEEN_HEADER_LEN + 64)) && downstream_queue != NULL && downstream_queue->first_block != NULL){
 
         //amount of data we'll actualy fill with (16 byte IV and 16 byte MAC)
         int32_t fill_amount = remaining - SLITHEEN_HEADER_LEN - 32;
@@ -1439,7 +1448,8 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
         remaining -= 16;
 
         //fill rest of packet with padding, if needed
-        if(remaining < SLITHEEN_HEADER_LEN){
+        //TODO: we can optimize this a bit, for now fixing 16 byte decryption problem
+        if((remaining < SLITHEEN_HEADER_LEN) || (sl_hdr->len < 16)){
             RAND_bytes(p, remaining);
             sl_hdr->garbage = htons(remaining);
             p += remaining;
