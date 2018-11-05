@@ -42,6 +42,7 @@
 #include "packet.h"
 #include "relay.h"
 #include "util.h"
+#include "http.h"
 
 /* Data structures */
 typedef struct packet_chain_st {

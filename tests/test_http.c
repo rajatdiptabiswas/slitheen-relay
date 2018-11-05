@@ -28,7 +28,7 @@ START_TEST(parse_full_resource) {
     }
 
     uint8_t *p = data;
-    http_state_machine(f, p, file_len);
+    parse_http(f, p, file_len);
 
 
     ck_assert_int_eq(f->httpstate, MID_CONTENT);
@@ -57,7 +57,7 @@ START_TEST(parse_partial_header) {
 
     uint8_t *p = data;
     p[300] = '\0';
-    http_state_machine(f, p, 300);
+    parse_http(f, p, 300);
 
 
     ck_assert_int_eq(f->httpstate, PARSE_HEADER);

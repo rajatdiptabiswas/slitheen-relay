@@ -33,6 +33,7 @@
 #include <stdint.h>
 
 #include "webm.h"
+#include "http.h"
 #include "flow.h"
 #include "relay.h"
 

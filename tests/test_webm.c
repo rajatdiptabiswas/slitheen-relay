@@ -5,6 +5,7 @@
 
 #include <check.h>
 #include "../flow.h"
+#include "../http.h"
 #include "test_util.h"
 #include "../webm.h"
 #include "../webm.c"
