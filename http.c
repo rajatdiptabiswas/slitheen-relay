@@ -41,6 +41,8 @@
 #include "util.h"
 #include "webm.h"
 
+static int32_t parse_http_header(flow *f, uint8_t *data, uint32_t length);
+
 /** Processes an incoming record by extracting or changing information, 
  * and updates the HTTP state of the provided flow.
  *
@@ -52,143 +54,28 @@
  */
 int32_t parse_http(flow *f, uint8_t *ptr, uint32_t length){
 
-    char *len_ptr, *needle;
+    char *needle;
 
     DEBUG_MSG(DEBUG_DOWN, "Current state (flow %p): %x\n", f, f->httpstate);
     DEBUG_MSG(DEBUG_DOWN, "Remaining record len: %d\n", length);
 
     uint8_t *p = ptr;
-    int32_t remaining_length = length;
+    uint32_t remaining_length = length;
 
     while(remaining_length > 0){
         switch(f->httpstate){
 
             case PARSE_HEADER:
-                //determine whether it's transfer encoded or otherwise
-                //figure out what the content-type is
-                len_ptr = strstr((const char *) p, "Content-Type: image");
-                if(len_ptr != NULL){
-                    f->replace_response = 1;
-                    memcpy(len_ptr + 14, "sli/theen", 9);
-                    char *c = len_ptr + 14+9;
-                    while(c[0] != '\r'){
-                        c[0] = ' ';
-                        c++;
-                    }
-                    DEBUG_MSG(DEBUG_DOWN, "Found and replaced leaf header\n");
-
-                } else {
-                    //check for video/audio
-                    len_ptr = strstr((const char *) p, "Content-Type: video/webm");
-                    if(len_ptr != NULL){
-                        printf("Found webm resource!\n");
-                        f->replace_response = 0;
-                        f->webmstate = WEBM_HEADER;
-                        //memcpy(len_ptr + 14, "sli/theenv", 10);
-
-                        char *c = len_ptr + 14+10;
-                        while(c[0] != '\r'){
-                            c[0] = ' ';
-                            c++;
-                        }
+                {
+                    int32_t header_len = parse_http_header(f, p, length);
+                    if (header_len < 0) {//something went wrong, forfeit flow
+                        remaining_length = 0;
                     } else {
-                        len_ptr = strstr((const char *) p, "Content-Type: hfjdkahfk"); //audio/webm");
-                        if(len_ptr != NULL){
-                            printf("Found webm resource!\n");
-                            f->replace_response = 0;
-                            f->webmstate = WEBM_HEADER;
-                            //memcpy(len_ptr + 14, "sli/theena", 10);
-
-                            char *c = len_ptr + 14+10;
-                            while(c[0] != '\r'){
-                                c[0] = ' ';
-                                c++;
-                            }
-                        } else {
-                            f->replace_response = 0;
-                        }
+                        p += header_len;
+                        remaining_length -= header_len;
                     }
-                }
-
-                //TODO: more cases for more status codes
-                //TODO: better way of finding terminating string
-                len_ptr = strstr((const char *) p, "304 Not Modified");
-                if(len_ptr != NULL){
-                    //no message body, look for terminating string
-                    len_ptr = strstr((const char *) p, "\r\n\r\n");
-                    if(len_ptr != NULL){
-                        f->httpstate = PARSE_HEADER;
-                        remaining_length -= (((uint8_t *)len_ptr - p) + 4);
-                        p = (uint8_t *) len_ptr + 4;
-
-                        DEBUG_MSG(DEBUG_DOWN, "Found a 304 not modified, waiting for next header\n");
-                        DEBUG_MSG(DEBUG_DOWN, "Remaining record len: %d\n", remaining_length);
-                    } else {
-                        DEBUG_MSG(DEBUG_DOWN, "Missing end of header. Sending to FORFEIT_REST (%p)\n", f);
-                        f->httpstate = FORFEIT_REST;
-                    }
-
-
                     break;
                 }
-
-                //check for 200 OK message
-                len_ptr = strstr((const char *) p, "200 OK");
-                if(len_ptr == NULL){
-                    f->replace_response = 0;
-                }
-
-                len_ptr = strstr((const char *) p, "Transfer-Encoding");
-                if(len_ptr != NULL){
-                    printf("Transfer encoding\n");
-                    if(!memcmp(len_ptr + 19, "chunked", 7)){
-                        printf("Chunked\n");
-                        //now find end of header
-
-                        len_ptr = strstr((const char *) p, "\r\n\r\n");
-                        if(len_ptr != NULL){
-                            f->httpstate = BEGIN_CHUNK;
-                            remaining_length -= (((uint8_t *)len_ptr - p) + 4);
-                            p = (uint8_t *) len_ptr + 4;
-                        } else {
-                            printf("Couldn't find end of header\n");
-                            f->httpstate = FORFEIT_REST;
-                        }
-                    } else {// other encodings not yet implemented
-                        f->httpstate = FORFEIT_REST;
-                    }
-                } else {
-                    len_ptr = strstr((const char *) p, "Content-Length:");
-                    if(len_ptr != NULL){
-                        len_ptr += 15;
-                        f->remaining_response_len =
-                            strtol((const char *) len_ptr, NULL, 10);
-
-                        DEBUG_MSG(DEBUG_DOWN, "content-length: %d\n",
-                                f->remaining_response_len);
-                        len_ptr = strstr((const char *) p, "\r\n\r\n");
-                        if(len_ptr != NULL){
-                            f->httpstate = MID_CONTENT;
-                            remaining_length -= (((uint8_t *)len_ptr - p) + 4);
-                            p = (uint8_t *) len_ptr + 4;
-
-                            DEBUG_MSG(DEBUG_DOWN, "Remaining record len: %d\n",
-                                    remaining_length);
-                        } else {
-                            remaining_length = 0;
-                            DEBUG_MSG(DEBUG_DOWN, "Missing end of header. Sending to FORFEIT_REST (%p)\n", f);
-
-                            f->httpstate = FORFEIT_REST;
-                        }
-                    } else {
-                        DEBUG_MSG(DEBUG_DOWN, "No content length of transfer encoding field, sending to FORFEIT_REST (%p)\n", f);
-
-                        f->httpstate = FORFEIT_REST;
-                        remaining_length = 0;
-                    }
-                }
-
-                break;
 
             case MID_CONTENT:
                 //check if content is replaceable
@@ -325,6 +212,138 @@ int32_t parse_http(flow *f, uint8_t *ptr, uint32_t length){
         }
     }
     return 1;
+}
+
+/** Parses the header of an HTTP resource and updates flow
+ *
+ */
+static int32_t parse_http_header(flow *f, uint8_t *data, uint32_t length) {
+
+    uint8_t *p = data;
+    char *len_ptr;
+    int32_t header_len = 0;
+
+    /* Find and possibly replace content type */
+    len_ptr = strstr((const char *) p, "Content-Type: image");
+    if (len_ptr != NULL) {
+        f->replace_response = 1;
+        memcpy(len_ptr + 14, "sli/theen", 9);
+        char *c = len_ptr + 14+9;
+        while(c[0] != '\r'){
+            c[0] = ' ';
+            c++;
+        }
+        DEBUG_MSG(DEBUG_DOWN, "Found and replaced leaf header\n");
+
+    } else {
+        //check for video/audio
+        len_ptr = strstr((const char *) p, "Content-Type: video/webm");
+        if (len_ptr != NULL) {
+            printf("Found webm resource!\n");
+            f->replace_response = 0;
+            f->webmstate = WEBM_HEADER;
+            //memcpy(len_ptr + 14, "sli/theenv", 10);
+
+            char *c = len_ptr + 14+10;
+            while(c[0] != '\r'){
+                c[0] = ' ';
+                c++;
+            }
+        } else {
+            len_ptr = strstr((const char *) p, "Content-Type: hfjdkahfk"); //audio/webm");
+            if(len_ptr != NULL){
+                printf("Found webm resource!\n");
+                f->replace_response = 0;
+                f->webmstate = WEBM_HEADER;
+                //memcpy(len_ptr + 14, "sli/theena", 10);
+
+                char *c = len_ptr + 14+10;
+                while(c[0] != '\r'){
+                    c[0] = ' ';
+                    c++;
+                }
+            } else {
+                f->replace_response = 0;
+            }
+        }
+    }
+
+    //TODO: more cases for more status codes
+    //TODO: better way of finding terminating string
+    len_ptr = strstr((const char *) p, "304 Not Modified");
+    if(len_ptr != NULL){
+        //no message body, look for terminating string
+        len_ptr = strstr((const char *) p, "\r\n\r\n");
+        if(len_ptr != NULL){
+            f->httpstate = PARSE_HEADER;
+            header_len += (((uint8_t *)len_ptr - p) + 4);
+            p = (uint8_t *) len_ptr + 4;
+
+            DEBUG_MSG(DEBUG_DOWN, "Found a 304 not modified, waiting for next header\n");
+        } else {
+            DEBUG_MSG(DEBUG_DOWN, "Missing end of header. Sending to FORFEIT_REST (%p)\n", f);
+            f->httpstate = FORFEIT_REST;
+            header_len = -1;
+        }
+        return header_len;
+    }
+
+    //check for 200 OK message
+    len_ptr = strstr((const char *) p, "200 OK");
+    if(len_ptr == NULL){
+        f->replace_response = 0;
+    }
+
+    len_ptr = strstr((const char *) p, "Transfer-Encoding");
+    if(len_ptr != NULL){
+        printf("Transfer encoding\n");
+        if(!memcmp(len_ptr + 19, "chunked", 7)){
+            printf("Chunked\n");
+            //now find end of header
+
+            len_ptr = strstr((const char *) p, "\r\n\r\n");
+            if(len_ptr != NULL){
+                f->httpstate = BEGIN_CHUNK;
+                header_len += (((uint8_t *)len_ptr - p) + 4);
+                p = (uint8_t *) len_ptr + 4;
+            } else {
+                printf("Couldn't find end of header\n");
+                f->httpstate = FORFEIT_REST;
+            }
+        } else {// other encodings not yet implemented
+            f->httpstate = FORFEIT_REST;
+        }
+    } else {
+        len_ptr = strstr((const char *) p, "Content-Length:");
+        if(len_ptr != NULL){
+            len_ptr += 15;
+            f->remaining_response_len =
+                strtol((const char *) len_ptr, NULL, 10);
+
+            DEBUG_MSG(DEBUG_DOWN, "content-length: %d\n",
+                    f->remaining_response_len);
+            len_ptr = strstr((const char *) p, "\r\n\r\n");
+            if(len_ptr != NULL){
+                f->httpstate = MID_CONTENT;
+                header_len += (((uint8_t *)len_ptr - p) + 4);
+                p = (uint8_t *) len_ptr + 4;
+
+            } else {
+                header_len = -1;
+                DEBUG_MSG(DEBUG_DOWN, "Missing end of header. Sending to FORFEIT_REST (%p)\n", f);
+
+                f->httpstate = FORFEIT_REST;
+            }
+        } else {
+            DEBUG_MSG(DEBUG_DOWN, "No content length of transfer encoding field, sending to FORFEIT_REST (%p)\n", f);
+
+            f->httpstate = FORFEIT_REST;
+            header_len = -1;
+        }
+    }
+
+    return header_len;
+
 }
 
 /** Fills a given pointer with downstream data of the specified length. If no downstream data
