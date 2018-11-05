@@ -72,6 +72,12 @@
 #define DEBUG_DOWN 0
 #endif
 
+#ifdef DEBUG_HTTP
+#define DEBUG_HTTP 1
+#else
+#define DEBUG_HTTP 0
+#endif
+
 /* Debugging macros */
 #define DEBUG_MSG(type, ...) \
     do { \

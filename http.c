@@ -57,8 +57,8 @@ int32_t parse_http(flow *f, uint8_t *ptr, uint32_t length){
 
     char *needle;
 
-    DEBUG_MSG(DEBUG_DOWN, "Current state (flow %p): %x\n", f, f->http_state);
-    DEBUG_MSG(DEBUG_DOWN, "Remaining record len: %d\n", length);
+    DEBUG_MSG(DEBUG_HTTP, "Current state (flow %p): %x\n", f, f->http_state);
+    DEBUG_MSG(DEBUG_HTTP, "Remaining record len: %d\n", length);
 
     uint8_t *p = ptr;
     uint32_t remaining_length = length;
@@ -83,16 +83,13 @@ int32_t parse_http(flow *f, uint8_t *ptr, uint32_t length){
                 if(f->remaining_response_len > remaining_length){
                     if (f->content_type == WEBM) {
                         parse_webm(f, p, remaining_length);
-                        if(f->remaining_response_len - remaining_length == 0){
-                            fprintf(stderr, "quitting\n");
-                        }
                     }
 
                     if(f->content_type == IMAGE){
                         fill_with_downstream(f, p, remaining_length);
 
-                        DEBUG_MSG(DEBUG_DOWN, "Replaced leaf with:\n");
-                        DEBUG_BYTES(DEBUG_DOWN, p, remaining_length);
+                        DEBUG_MSG(DEBUG_HTTP, "Replaced leaf with:\n");
+                        DEBUG_BYTES(DEBUG_HTTP, p, remaining_length);
                     }
 
                     f->remaining_response_len -= remaining_length;
@@ -107,13 +104,13 @@ int32_t parse_http(flow *f, uint8_t *ptr, uint32_t length){
                     if(f->content_type == IMAGE){
                         fill_with_downstream(f, p, remaining_length);
 
-                        DEBUG_MSG(DEBUG_DOWN, "ERR: Replaced leaf with:\n");
-                        DEBUG_BYTES(DEBUG_DOWN, p, remaining_length);
+                        DEBUG_MSG(DEBUG_HTTP, "ERR: Replaced leaf with:\n");
+                        DEBUG_BYTES(DEBUG_HTTP, p, remaining_length);
                     }
                     remaining_length -= f->remaining_response_len;
                     p += f->remaining_response_len;
 
-                    DEBUG_MSG(DEBUG_DOWN, "Change state %x --> PARSE_HEADER (%p)\n", f->http_state, f);
+                    DEBUG_MSG(DEBUG_HTTP, "Change state %x --> PARSE_HEADER (%p)\n", f->http_state, f);
                     f->http_state = PARSE_HEADER;
                     f->remaining_response_len = 0;
                 }
@@ -122,7 +119,7 @@ int32_t parse_http(flow *f, uint8_t *ptr, uint32_t length){
             case BEGIN_CHUNK:
                 {
                     int32_t chunk_size = strtol((const char *) p, NULL, 16);
-                    DEBUG_MSG(DEBUG_DOWN, "BEGIN_CHUNK: chunk size is %d\n", chunk_size);
+                    DEBUG_MSG(DEBUG_HTTP, "BEGIN_CHUNK: chunk size is %d\n", chunk_size);
                     if(chunk_size == 0){
                         f->http_state = END_BODY;
                     } else {
@@ -135,37 +132,39 @@ int32_t parse_http(flow *f, uint8_t *ptr, uint32_t length){
                         p = (uint8_t *) needle + 2;
                     } else {
                         remaining_length = 0;
-                        DEBUG_MSG(DEBUG_DOWN, "Error parsing in BEGIN_CHUNK, FORFEIT (%p)\n", f);
+                        DEBUG_MSG(DEBUG_HTTP, "Error parsing in BEGIN_CHUNK, FORFEIT (%p)\n", f);
                         f->http_state = FORFEIT_REST;
                     }
                 }
                 break;
 
             case MID_CHUNK:
+
                 if(f->remaining_response_len > remaining_length){
                     if (f->content_type == WEBM) {
                         parse_webm(f, p, remaining_length);
-                        if(f->remaining_response_len - remaining_length == 0){
-                            fprintf(stderr, "quitting\n");
-                        }
                     }
 
                     if(f->content_type == IMAGE){
                         fill_with_downstream(f, p, remaining_length);
 
-                        DEBUG_MSG(DEBUG_DOWN, "Replaced leaf with:\n");
-                        DEBUG_BYTES(DEBUG_DOWN, p, remaining_length);
+                        DEBUG_MSG(DEBUG_HTTP, "Replaced leaf with:\n");
+                        DEBUG_BYTES(DEBUG_HTTP, p, remaining_length);
                     }
                     f->remaining_response_len -= remaining_length;
                     p += remaining_length;
 
                     remaining_length = 0;
                 } else {
+                    if (f->content_type == WEBM) {
+                        parse_webm(f, p, f->remaining_response_len);
+                    }
+
                     if(f->content_type == IMAGE){
                         fill_with_downstream(f, p, f->remaining_response_len);
 
-                        DEBUG_MSG(DEBUG_DOWN, "Replaced leaf with:\n");
-                        DEBUG_BYTES(DEBUG_DOWN, p, f->remaining_response_len);
+                        DEBUG_MSG(DEBUG_HTTP, "Replaced leaf with:\n");
+                        DEBUG_BYTES(DEBUG_HTTP, p, f->remaining_response_len);
                     }
                     remaining_length -= f->remaining_response_len;
                     p += f->remaining_response_len;
@@ -224,45 +223,7 @@ static int32_t parse_http_header(flow *f, uint8_t *data, uint32_t length) {
     char *len_ptr;
     int32_t header_len = 0;
 
-    /* Find and possibly replace content type */
-    len_ptr = strstr((const char *) p, "Content-Type: ");
-    if (len_ptr != NULL) { //check to see if content type is replaceable
-
-        if (memcmp(len_ptr + sizeof("Content-Type: ") -1, "image", sizeof("image") -1) == 0) {
-
-            f->content_type = IMAGE;
-            printf("found image!\n");
-            memcpy(len_ptr + 14, "sli/theen", 9);
-
-            char *c = len_ptr + 14+9; //fill out remaining content type with whitespace
-            while(c[0] != '\r'){
-                c[0] = ' ';
-                c++;
-            }
-
-            DEBUG_MSG(DEBUG_DOWN, "Found and replaced leaf header\n");
-
-        } else if ( (memcmp(len_ptr + sizeof("Content-Type: ") -1,
-                        "video/webm", sizeof("video/webm") -1) == 0) ||
-                (memcmp(len_ptr + sizeof("Content-Type: ") -1,
-                        "audio/webm", sizeof("audio/webm") -1) == 0)){
-
-            printf("found webm!\n");
-            f->content_type = WEBM; //Note: this is zero even though we're replacing it
-            f->webmstate = WEBM_HEADER;
-
-            /* Note: we only replace the content type for images, video and audo
-             * resources and handled differently in the mozilla browser code
-             */
-
-        } else { //we haven't found a replaceable content type
-            printf("Can't replace %.10s\n", len_ptr+ sizeof("Content-Type: ") -1);
-            f->content_type = NOREPLACE;
-        }
-    }
-
     /* Check status code */
-    //TODO: more cases for more status codes
     len_ptr = strstr((const char *) p, "304 Not Modified");
     if(len_ptr != NULL){
         //no message body, look for terminating string
@@ -272,9 +233,9 @@ static int32_t parse_http_header(flow *f, uint8_t *data, uint32_t length) {
             header_len = (((uint8_t *)len_ptr - p) + 4);
             p = (uint8_t *) len_ptr + 4;
 
-            DEBUG_MSG(DEBUG_DOWN, "Found a 304 not modified, waiting for next header\n");
+            DEBUG_MSG(DEBUG_HTTP, "Found a 304 not modified, waiting for next header\n");
         } else {
-            DEBUG_MSG(DEBUG_DOWN, "Missing end of header. Sending to FORFEIT_REST (%p)\n", f);
+            DEBUG_MSG(DEBUG_HTTP, "Missing end of header. Sending to FORFEIT_REST (%p)\n", f);
             f->http_state = FORFEIT_REST;
             header_len = -1;
         }
@@ -283,16 +244,48 @@ static int32_t parse_http_header(flow *f, uint8_t *data, uint32_t length) {
 
     //check for 200 OK message
     len_ptr = strstr((const char *) p, "200 OK");
-    if(len_ptr == NULL){
+    if((len_ptr == NULL) && (f->content_type == UNKNOWN)){
         f->content_type = NOREPLACE;
+    }
+
+    /* Find and possibly replace content type */
+    len_ptr = strstr((const char *) p, "Content-Type: ");
+    if (len_ptr != NULL) { //check to see if content type is replaceable
+
+        if (memcmp(len_ptr + sizeof("Content-Type: ") -1, "image", sizeof("image") -1) == 0) {
+
+            f->content_type = IMAGE;
+            memcpy(len_ptr + 14, "sli/theen", 9);
+
+            char *c = len_ptr + 14+9; //fill out remaining content type with whitespace
+            while(c[0] != '\r'){
+                c[0] = ' ';
+                c++;
+            }
+
+            DEBUG_MSG(DEBUG_HTTP, "Found and replaced leaf header\n");
+
+        } else if ( (memcmp(len_ptr + sizeof("Content-Type: ") -1,
+                        "video/webm", sizeof("video/webm") -1) == 0) ||
+                (memcmp(len_ptr + sizeof("Content-Type: ") -1,
+                        "audio/webm", sizeof("audio/webm") -1) == 0)){
+
+            f->content_type = WEBM; //Note: this is zero even though we're replacing it
+            f->webmstate = WEBM_HEADER;
+
+            /* Note: we only replace the content type for images, video and audo
+             * resources and handled differently in the mozilla browser code
+             */
+
+        } else { //we haven't found a replaceable content type
+            f->content_type = NOREPLACE;
+        }
     }
 
     /* Look for length and encoding of resources */
     len_ptr = strstr((const char *) p, "Transfer-Encoding");
     if(len_ptr != NULL){
-        printf("Transfer encoding\n");
         if(!memcmp(len_ptr + 19, "chunked", 7)){
-            printf("Chunked\n");
             f->http_state_next = BEGIN_CHUNK;
 
         } else {// other encodings not yet implemented
@@ -305,7 +298,7 @@ static int32_t parse_http_header(flow *f, uint8_t *data, uint32_t length) {
             f->remaining_response_len =
                 strtol((const char *) len_ptr, NULL, 10);
 
-            DEBUG_MSG(DEBUG_DOWN, "content-length: %d\n",
+            DEBUG_MSG(DEBUG_HTTP, "content-length: %d\n",
                     f->remaining_response_len);
 
             f->http_state_next = MID_CONTENT;
@@ -324,10 +317,8 @@ static int32_t parse_http_header(flow *f, uint8_t *data, uint32_t length) {
 
         header_len = (((uint8_t *)len_ptr - p) + 4);
         p = (uint8_t *) len_ptr + 4;
-        printf("End of header. Next state is %x\n", f->http_state);
 
     } else {
-        printf("header doesn't end in this packet\n");
         header_len = length;
     }
 
@@ -358,12 +349,7 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 
     data_queue *downstream_queue = f->downstream_queue;
     client *client_ptr = f->client_ptr;
-/*
-    FILE *fp;
-    fp = fopen("replaced_data.out", "a");
-    fprintf(fp, "%d\n", length);
-    fclose(fp);
-*/
+
     if(client_ptr == NULL){
         //printf("ERROR: no client\n");
         return 1;
@@ -451,10 +437,10 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
         super_encrypt(client_ptr, encrypted_data, data_len + padding);
 
 
-        DEBUG_MSG(DEBUG_DOWN, "DWNSTRM: slitheen header: ");
-        DEBUG_BYTES(DEBUG_DOWN, ((uint8_t *) sl_hdr), SLITHEEN_HEADER_LEN);
-        DEBUG_MSG(DEBUG_DOWN, "Sending %d downstream bytes:", data_len);
-        DEBUG_BYTES(DEBUG_DOWN, (((uint8_t *) sl_hdr) + SLITHEEN_HEADER_LEN), data_len+16+16);
+        DEBUG_MSG(DEBUG_HTTP, "DWNSTRM: slitheen header: ");
+        DEBUG_BYTES(DEBUG_HTTP, ((uint8_t *) sl_hdr), SLITHEEN_HEADER_LEN);
+        DEBUG_MSG(DEBUG_HTTP, "Sending %d downstream bytes:", data_len);
+        DEBUG_BYTES(DEBUG_HTTP, (((uint8_t *) sl_hdr) + SLITHEEN_HEADER_LEN), data_len+16+16);
     }
     //now, if we need more data, fill with garbage
     if(remaining >= SLITHEEN_HEADER_LEN ){
@@ -467,8 +453,8 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
         sl_hdr->garbage = htons(remaining);
         sl_hdr->zeros = 0x0000;
 
-        DEBUG_MSG(DEBUG_DOWN, "DWNSTRM: slitheen header: ");
-        DEBUG_BYTES(DEBUG_DOWN, p, SLITHEEN_HEADER_LEN);
+        DEBUG_MSG(DEBUG_HTTP, "DWNSTRM: slitheen header: ");
+        DEBUG_BYTES(DEBUG_HTTP, p, SLITHEEN_HEADER_LEN);
 
         //encrypt slitheen header
         super_encrypt(client_ptr, p, 0);
