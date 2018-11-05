@@ -16,7 +16,7 @@ START_TEST(parse_full_resource) {
     flow *f = smalloc(sizeof(flow));
 
     //we only need to set the webmstate and remaining_element fields of the flow
-    f->httpstate = PARSE_HEADER;
+    f->http_state = PARSE_HEADER;
     f->remaining_element = 0;
 
     uint8_t *data;
@@ -31,7 +31,7 @@ START_TEST(parse_full_resource) {
     parse_http(f, p, file_len);
 
 
-    ck_assert_int_eq(f->httpstate, MID_CONTENT);
+    ck_assert_int_eq(f->http_state, MID_CONTENT);
 
     free(data);
 
@@ -44,7 +44,7 @@ START_TEST(parse_partial_header) {
     flow *f = smalloc(sizeof(flow));
 
     //we only need to set the webmstate and remaining_element fields of the flow
-    f->httpstate = PARSE_HEADER;
+    f->http_state = PARSE_HEADER;
     f->remaining_element = 0;
 
     uint8_t *data;
@@ -56,11 +56,18 @@ START_TEST(parse_partial_header) {
     }
 
     uint8_t *p = data;
-    p[300] = '\0';
-    parse_http(f, p, 300);
+    uint8_t temp = p[295];
+    p[295] = '\0';
+    parse_http(f, p, 295);
 
+    p[295] = temp;
 
-    ck_assert_int_eq(f->httpstate, PARSE_HEADER);
+    ck_assert_int_eq(f->http_state, PARSE_HEADER);
+
+    p += 295;
+    parse_http(f, p, file_len - 295);
+
+    ck_assert_int_eq(f->http_state, MID_CONTENT);
 
     free(data);
 }

@@ -42,6 +42,7 @@
 #include "webm.h"
 
 static int32_t parse_http_header(flow *f, uint8_t *data, uint32_t length);
+static void reset_resource(flow *f);
 
 /** Processes an incoming record by extracting or changing information, 
  * and updates the HTTP state of the provided flow.
@@ -56,18 +57,18 @@ int32_t parse_http(flow *f, uint8_t *ptr, uint32_t length){
 
     char *needle;
 
-    DEBUG_MSG(DEBUG_DOWN, "Current state (flow %p): %x\n", f, f->httpstate);
+    DEBUG_MSG(DEBUG_DOWN, "Current state (flow %p): %x\n", f, f->http_state);
     DEBUG_MSG(DEBUG_DOWN, "Remaining record len: %d\n", length);
 
     uint8_t *p = ptr;
     uint32_t remaining_length = length;
 
     while(remaining_length > 0){
-        switch(f->httpstate){
+        switch(f->http_state){
 
             case PARSE_HEADER:
                 {
-                    int32_t header_len = parse_http_header(f, p, length);
+                    int32_t header_len = parse_http_header(f, p, remaining_length);
                     if (header_len < 0) {//something went wrong, forfeit flow
                         remaining_length = 0;
                     } else {
@@ -80,14 +81,14 @@ int32_t parse_http(flow *f, uint8_t *ptr, uint32_t length){
             case MID_CONTENT:
                 //check if content is replaceable
                 if(f->remaining_response_len > remaining_length){
-                    if (f->webmstate) {
+                    if (f->content_type == WEBM) {
                         parse_webm(f, p, remaining_length);
                         if(f->remaining_response_len - remaining_length == 0){
                             fprintf(stderr, "quitting\n");
                         }
                     }
 
-                    if(f->replace_response){
+                    if(f->content_type == IMAGE){
                         fill_with_downstream(f, p, remaining_length);
 
                         DEBUG_MSG(DEBUG_DOWN, "Replaced leaf with:\n");
@@ -99,11 +100,11 @@ int32_t parse_http(flow *f, uint8_t *ptr, uint32_t length){
 
                     remaining_length = 0;
                 } else {
-                    if (f->webmstate) {
+                    if (f->content_type == WEBM) {
                         parse_webm(f, p, f->remaining_response_len);
                     }
 
-                    if(f->replace_response){
+                    if(f->content_type == IMAGE){
                         fill_with_downstream(f, p, remaining_length);
 
                         DEBUG_MSG(DEBUG_DOWN, "ERR: Replaced leaf with:\n");
@@ -112,8 +113,8 @@ int32_t parse_http(flow *f, uint8_t *ptr, uint32_t length){
                     remaining_length -= f->remaining_response_len;
                     p += f->remaining_response_len;
 
-                    DEBUG_MSG(DEBUG_DOWN, "Change state %x --> PARSE_HEADER (%p)\n", f->httpstate, f);
-                    f->httpstate = PARSE_HEADER;
+                    DEBUG_MSG(DEBUG_DOWN, "Change state %x --> PARSE_HEADER (%p)\n", f->http_state, f);
+                    f->http_state = PARSE_HEADER;
                     f->remaining_response_len = 0;
                 }
                 break;
@@ -123,9 +124,9 @@ int32_t parse_http(flow *f, uint8_t *ptr, uint32_t length){
                     int32_t chunk_size = strtol((const char *) p, NULL, 16);
                     DEBUG_MSG(DEBUG_DOWN, "BEGIN_CHUNK: chunk size is %d\n", chunk_size);
                     if(chunk_size == 0){
-                        f->httpstate = END_BODY;
+                        f->http_state = END_BODY;
                     } else {
-                        f->httpstate = MID_CHUNK;
+                        f->http_state = MID_CHUNK;
                     }
                     f->remaining_response_len = chunk_size;
                     needle = strstr((const char *) p, "\r\n");
@@ -135,21 +136,21 @@ int32_t parse_http(flow *f, uint8_t *ptr, uint32_t length){
                     } else {
                         remaining_length = 0;
                         DEBUG_MSG(DEBUG_DOWN, "Error parsing in BEGIN_CHUNK, FORFEIT (%p)\n", f);
-                        f->httpstate = FORFEIT_REST;
+                        f->http_state = FORFEIT_REST;
                     }
                 }
                 break;
 
             case MID_CHUNK:
                 if(f->remaining_response_len > remaining_length){
-                    if (f->webmstate) {
+                    if (f->content_type == WEBM) {
                         parse_webm(f, p, remaining_length);
                         if(f->remaining_response_len - remaining_length == 0){
                             fprintf(stderr, "quitting\n");
                         }
                     }
 
-                    if(f->replace_response){
+                    if(f->content_type == IMAGE){
                         fill_with_downstream(f, p, remaining_length);
 
                         DEBUG_MSG(DEBUG_DOWN, "Replaced leaf with:\n");
@@ -160,7 +161,7 @@ int32_t parse_http(flow *f, uint8_t *ptr, uint32_t length){
 
                     remaining_length = 0;
                 } else {
-                    if(f->replace_response){
+                    if(f->content_type == IMAGE){
                         fill_with_downstream(f, p, f->remaining_response_len);
 
                         DEBUG_MSG(DEBUG_DOWN, "Replaced leaf with:\n");
@@ -169,34 +170,34 @@ int32_t parse_http(flow *f, uint8_t *ptr, uint32_t length){
                     remaining_length -= f->remaining_response_len;
                     p += f->remaining_response_len;
                     f->remaining_response_len = 0;
-                    f->httpstate = END_CHUNK;
+                    f->http_state = END_CHUNK;
                 }
                 break;
 
             case END_CHUNK:
                 needle = strstr((const char *) p, "\r\n");
                 if(needle != NULL){
-                    f->httpstate = BEGIN_CHUNK;
+                    f->http_state = BEGIN_CHUNK;
                     p += 2;
                     remaining_length -= 2;
                 } else {
                     remaining_length = 0;
                     printf("Couldn't find end of chunk, sending to FORFEIT_REST (%p)\n", f);
-                    f->httpstate = FORFEIT_REST;
+                    f->http_state = FORFEIT_REST;
                 }
                 break;
 
             case END_BODY:
                 needle = strstr((const char *) p, "\r\n");
                 if(needle != NULL){
-                    printf("Change state %x --> PARSE_HEADER (%p)\n", f->httpstate, f);
-                    f->httpstate = PARSE_HEADER;
+                    printf("Change state %x --> PARSE_HEADER (%p)\n", f->http_state, f);
+                    f->http_state = PARSE_HEADER;
                     p += 2;
                     remaining_length -= 2;
                 } else {
                     remaining_length = 0;
                     printf("Couldn't find end of body, sending to FORFEIT_REST (%p)\n", f);
-                    f->httpstate = FORFEIT_REST;
+                    f->http_state = FORFEIT_REST;
                 }
                 break;
 
@@ -229,7 +230,7 @@ static int32_t parse_http_header(flow *f, uint8_t *data, uint32_t length) {
 
         if (memcmp(len_ptr + sizeof("Content-Type: ") -1, "image", sizeof("image") -1) == 0) {
 
-            f->replace_response = 1;
+            f->content_type = IMAGE;
             printf("found image!\n");
             memcpy(len_ptr + 14, "sli/theen", 9);
 
@@ -245,9 +246,9 @@ static int32_t parse_http_header(flow *f, uint8_t *data, uint32_t length) {
                         "video/webm", sizeof("video/webm") -1) == 0) ||
                 (memcmp(len_ptr + sizeof("Content-Type: ") -1,
                         "audio/webm", sizeof("audio/webm") -1) == 0)){
-            
+
             printf("found webm!\n");
-            f->replace_response = 0; //Note: this is zero even though we're replacing it
+            f->content_type = WEBM; //Note: this is zero even though we're replacing it
             f->webmstate = WEBM_HEADER;
 
             /* Note: we only replace the content type for images, video and audo
@@ -256,7 +257,7 @@ static int32_t parse_http_header(flow *f, uint8_t *data, uint32_t length) {
 
         } else { //we haven't found a replaceable content type
             printf("Can't replace %.10s\n", len_ptr+ sizeof("Content-Type: ") -1);
-            f->replace_response = 0;
+            f->content_type = NOREPLACE;
         }
     }
 
@@ -267,14 +268,14 @@ static int32_t parse_http_header(flow *f, uint8_t *data, uint32_t length) {
         //no message body, look for terminating string
         len_ptr = strstr((const char *) p, "\r\n\r\n");
         if(len_ptr != NULL){
-            f->httpstate = PARSE_HEADER;
-            header_len += (((uint8_t *)len_ptr - p) + 4);
+            reset_resource(f);
+            header_len = (((uint8_t *)len_ptr - p) + 4);
             p = (uint8_t *) len_ptr + 4;
 
             DEBUG_MSG(DEBUG_DOWN, "Found a 304 not modified, waiting for next header\n");
         } else {
             DEBUG_MSG(DEBUG_DOWN, "Missing end of header. Sending to FORFEIT_REST (%p)\n", f);
-            f->httpstate = FORFEIT_REST;
+            f->http_state = FORFEIT_REST;
             header_len = -1;
         }
         return header_len;
@@ -283,30 +284,19 @@ static int32_t parse_http_header(flow *f, uint8_t *data, uint32_t length) {
     //check for 200 OK message
     len_ptr = strstr((const char *) p, "200 OK");
     if(len_ptr == NULL){
-        f->replace_response = 0;
+        f->content_type = NOREPLACE;
     }
 
-
     /* Look for length and encoding of resources */
-    //TODO: better way of finding terminating string
     len_ptr = strstr((const char *) p, "Transfer-Encoding");
     if(len_ptr != NULL){
         printf("Transfer encoding\n");
         if(!memcmp(len_ptr + 19, "chunked", 7)){
             printf("Chunked\n");
-            //now find end of header
+            f->http_state_next = BEGIN_CHUNK;
 
-            len_ptr = strstr((const char *) p, "\r\n\r\n");
-            if(len_ptr != NULL){
-                f->httpstate = BEGIN_CHUNK;
-                header_len += (((uint8_t *)len_ptr - p) + 4);
-                p = (uint8_t *) len_ptr + 4;
-            } else {
-                printf("Couldn't find end of header\n");
-                f->httpstate = FORFEIT_REST;
-            }
         } else {// other encodings not yet implemented
-            f->httpstate = FORFEIT_REST;
+            f->http_state_next = FORFEIT_REST;
         }
     } else {
         len_ptr = strstr((const char *) p, "Content-Length:");
@@ -317,27 +307,38 @@ static int32_t parse_http_header(flow *f, uint8_t *data, uint32_t length) {
 
             DEBUG_MSG(DEBUG_DOWN, "content-length: %d\n",
                     f->remaining_response_len);
-            len_ptr = strstr((const char *) p, "\r\n\r\n");
-            if(len_ptr != NULL){
-                f->httpstate = MID_CONTENT;
-                header_len += (((uint8_t *)len_ptr - p) + 4);
-                p = (uint8_t *) len_ptr + 4;
 
-            } else {
-                header_len = -1;
-                DEBUG_MSG(DEBUG_DOWN, "Missing end of header. Sending to FORFEIT_REST (%p)\n", f);
-
-                f->httpstate = FORFEIT_REST;
-            }
-        } else {
-            DEBUG_MSG(DEBUG_DOWN, "No content length of transfer encoding field, sending to FORFEIT_REST (%p)\n", f);
-
-            f->httpstate = FORFEIT_REST;
-            header_len = -1;
+            f->http_state_next = MID_CONTENT;
         }
     }
 
+    /* Look for the end of the header */
+    len_ptr = strstr((const char *) p, "\r\n\r\n");
+    if(len_ptr != NULL){
+        f->http_state = f->http_state_next;
+
+        if (f->http_state == PARSE_HEADER) {
+            printf("Reached end of header without a transfer encoding or content length\n");
+            f->http_state = FORFEIT_REST;
+        }
+
+        header_len = (((uint8_t *)len_ptr - p) + 4);
+        p = (uint8_t *) len_ptr + 4;
+        printf("End of header. Next state is %x\n", f->http_state);
+
+    } else {
+        printf("header doesn't end in this packet\n");
+        header_len = length;
+    }
+
     return header_len;
+}
+
+static void reset_resource(flow *f){
+    f->http_state = PARSE_HEADER;
+    f->http_state_next = PARSE_HEADER;
+    f->content_type = UNKNOWN;
+    f->webmstate = 0;
 }
 
 /** Fills a given pointer with downstream data of the specified length. If no downstream data

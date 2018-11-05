@@ -945,7 +945,7 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
                         free(f->partial_record_header);
                     }
                     free(record_ptr);
-			f->httpstate = FORFEIT_REST;
+			f->http_state = FORFEIT_REST;
                     return 0;//TODO: goto err to free record_ptr
                 }
 
@@ -995,7 +995,7 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
         parse_http(f, p, remaining_record_len);
 
 
-        if(changed && (f->replace_response || f->webmstate)){
+        if(changed && (f->content_type != NOREPLACE)){
             DEBUG_MSG(DEBUG_DOWN, "Resource is now:\n");
             DEBUG_BYTES(DEBUG_DOWN, (record_ptr + EVP_GCM_TLS_EXPLICIT_IV_LEN), n);
             DEBUG_MSG(DEBUG_DOWN, "Text:\n%s\n", record_ptr+EVP_GCM_TLS_EXPLICIT_IV_LEN);

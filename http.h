@@ -44,5 +44,11 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length);
 #define FORFEIT_REST 0x80
 #define USE_REST 0x90
 
+/* HTTP content types */
+#define UNKNOWN     0x0
+#define IMAGE       0x1
+#define WEBM        0x2
+#define NOREPLACE   0x3
+
 #endif /* HTTP_H */
 
