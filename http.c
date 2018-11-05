@@ -224,52 +224,44 @@ static int32_t parse_http_header(flow *f, uint8_t *data, uint32_t length) {
     int32_t header_len = 0;
 
     /* Find and possibly replace content type */
-    len_ptr = strstr((const char *) p, "Content-Type: image");
-    if (len_ptr != NULL) {
-        f->replace_response = 1;
-        memcpy(len_ptr + 14, "sli/theen", 9);
-        char *c = len_ptr + 14+9;
-        while(c[0] != '\r'){
-            c[0] = ' ';
-            c++;
-        }
-        DEBUG_MSG(DEBUG_DOWN, "Found and replaced leaf header\n");
+    len_ptr = strstr((const char *) p, "Content-Type: ");
+    if (len_ptr != NULL) { //check to see if content type is replaceable
 
-    } else {
-        //check for video/audio
-        len_ptr = strstr((const char *) p, "Content-Type: video/webm");
-        if (len_ptr != NULL) {
-            printf("Found webm resource!\n");
-            f->replace_response = 0;
-            f->webmstate = WEBM_HEADER;
-            //memcpy(len_ptr + 14, "sli/theenv", 10);
+        if (memcmp(len_ptr + sizeof("Content-Type: ") -1, "image", sizeof("image") -1) == 0) {
 
-            char *c = len_ptr + 14+10;
+            f->replace_response = 1;
+            printf("found image!\n");
+            memcpy(len_ptr + 14, "sli/theen", 9);
+
+            char *c = len_ptr + 14+9; //fill out remaining content type with whitespace
             while(c[0] != '\r'){
                 c[0] = ' ';
                 c++;
             }
-        } else {
-            len_ptr = strstr((const char *) p, "Content-Type: hfjdkahfk"); //audio/webm");
-            if(len_ptr != NULL){
-                printf("Found webm resource!\n");
-                f->replace_response = 0;
-                f->webmstate = WEBM_HEADER;
-                //memcpy(len_ptr + 14, "sli/theena", 10);
 
-                char *c = len_ptr + 14+10;
-                while(c[0] != '\r'){
-                    c[0] = ' ';
-                    c++;
-                }
-            } else {
-                f->replace_response = 0;
-            }
+            DEBUG_MSG(DEBUG_DOWN, "Found and replaced leaf header\n");
+
+        } else if ( (memcmp(len_ptr + sizeof("Content-Type: ") -1,
+                        "video/webm", sizeof("video/webm") -1) == 0) ||
+                (memcmp(len_ptr + sizeof("Content-Type: ") -1,
+                        "audio/webm", sizeof("audio/webm") -1) == 0)){
+            
+            printf("found webm!\n");
+            f->replace_response = 0; //Note: this is zero even though we're replacing it
+            f->webmstate = WEBM_HEADER;
+
+            /* Note: we only replace the content type for images, video and audo
+             * resources and handled differently in the mozilla browser code
+             */
+
+        } else { //we haven't found a replaceable content type
+            printf("Can't replace %.10s\n", len_ptr+ sizeof("Content-Type: ") -1);
+            f->replace_response = 0;
         }
     }
 
+    /* Check status code */
     //TODO: more cases for more status codes
-    //TODO: better way of finding terminating string
     len_ptr = strstr((const char *) p, "304 Not Modified");
     if(len_ptr != NULL){
         //no message body, look for terminating string
@@ -294,6 +286,9 @@ static int32_t parse_http_header(flow *f, uint8_t *data, uint32_t length) {
         f->replace_response = 0;
     }
 
+
+    /* Look for length and encoding of resources */
+    //TODO: better way of finding terminating string
     len_ptr = strstr((const char *) p, "Transfer-Encoding");
     if(len_ptr != NULL){
         printf("Transfer encoding\n");
@@ -343,7 +338,6 @@ static int32_t parse_http_header(flow *f, uint8_t *data, uint32_t length) {
     }
 
     return header_len;
-
 }
 
 /** Fills a given pointer with downstream data of the specified length. If no downstream data
