@@ -1,11 +1,9 @@
-To install:
+To build:
 
-make openssl
-copy library and include directories into makefile
 make
 
 To generate keys:
-Make and run genkeys from telex-tag-v3
+cd keygen && make && ./genkeys
 
 To run:
 ./slitheen [interface to client] [interface to world]
