@@ -206,6 +206,9 @@ flow *add_flow(struct packet_info *info) {
     new_flow->remaining_element = 0;
     new_flow->element_header = 0;
     new_flow->content_type = UNKNOWN;
+    new_flow->mp4_state = 0;
+    new_flow->mp4_box_type = 0;
+    new_flow->mp4_box_size = 0;
 
     new_flow->ecdh = NULL;
     new_flow->srvr_key = NULL;

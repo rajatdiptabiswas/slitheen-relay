@@ -48,7 +48,8 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length);
 #define UNKNOWN     0x0
 #define IMAGE       0x1
 #define WEBM        0x2
-#define NOREPLACE   0x3
+#define MP4         0x3
+#define NOREPLACE   0x4
 
 #endif /* HTTP_H */
 

@@ -40,6 +40,7 @@
 #include "crypto.h"
 #include "util.h"
 #include "webm.h"
+#include "mp4.h"
 
 static int32_t parse_http_header(flow *f, uint8_t *data, uint32_t length);
 static void reset_resource(flow *f);
@@ -83,6 +84,8 @@ int32_t parse_http(flow *f, uint8_t *ptr, uint32_t length){
                 if(f->remaining_response_len > remaining_length){
                     if (f->content_type == WEBM) {
                         parse_webm(f, p, remaining_length);
+                    } else if (f->content_type == MP4) {
+                        parse_mp4(f, p, remaining_length);
                     }
 
                     if(f->content_type == IMAGE){
@@ -99,6 +102,8 @@ int32_t parse_http(flow *f, uint8_t *ptr, uint32_t length){
                 } else {
                     if (f->content_type == WEBM) {
                         parse_webm(f, p, f->remaining_response_len);
+                    } else if (f->content_type == MP4) {
+                        parse_mp4(f, p, f->remaining_response_len);
                     }
 
                     if(f->content_type == IMAGE){
@@ -143,6 +148,8 @@ int32_t parse_http(flow *f, uint8_t *ptr, uint32_t length){
                 if(f->remaining_response_len > remaining_length){
                     if (f->content_type == WEBM) {
                         parse_webm(f, p, remaining_length);
+                    } else if (f->content_type == MP4) {
+                        parse_mp4(f, p, remaining_length);
                     }
 
                     if(f->content_type == IMAGE){
@@ -158,6 +165,8 @@ int32_t parse_http(flow *f, uint8_t *ptr, uint32_t length){
                 } else {
                     if (f->content_type == WEBM) {
                         parse_webm(f, p, f->remaining_response_len);
+                    } else if (f->content_type == MP4) {
+                        parse_mp4(f, p, f->remaining_response_len);
                     }
 
                     if(f->content_type == IMAGE){
@@ -223,6 +232,8 @@ static int32_t parse_http_header(flow *f, uint8_t *data, uint32_t length) {
     char *len_ptr;
     int32_t header_len = 0;
 
+    DEBUG_MSG(DEBUG_HTTP, "Header:\n%s\n", data);
+
     /* Check status code */
     len_ptr = strstr((const char *) p, "304 Not Modified");
     if(len_ptr != NULL){
@@ -270,8 +281,17 @@ static int32_t parse_http_header(flow *f, uint8_t *data, uint32_t length) {
                 (memcmp(len_ptr + sizeof("Content-Type: ") -1,
                         "audio/webm", sizeof("audio/webm") -1) == 0)){
 
-            f->content_type = WEBM; //Note: this is zero even though we're replacing it
+            f->content_type = WEBM;
             f->webmstate = WEBM_HEADER;
+
+        } else if ( (memcmp(len_ptr + sizeof("Content-Type: ") -1,
+                        "video/mp4", sizeof("video/mp4") -1) == 0) ||
+                (memcmp(len_ptr + sizeof("Content-Type: ") -1,
+                        "audio/mp4", sizeof("audio/mp4") -1) == 0)){
+
+            f->content_type = MP4;
+            printf("Found MP4 resource!\n");
+            f->mp4_state = BOX_HEADER;
 
             /* Note: we only replace the content type for images, video and audo
              * resources and handled differently in the mozilla browser code

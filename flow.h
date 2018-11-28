@@ -174,6 +174,11 @@ typedef struct flow_st {
     uint64_t remaining_element;
     uint32_t element_header;
 
+    //mp4 state machine
+    uint8_t mp4_state;
+    uint32_t mp4_box_type;
+    uint64_t mp4_box_size;
+
     uint8_t *outbox;
     int32_t outbox_len;
     int32_t outbox_offset;
