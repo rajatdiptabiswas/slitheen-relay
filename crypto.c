@@ -1635,14 +1635,18 @@ int partial_aes_gcm_tls_cipher(flow *f, unsigned char *out,
 
     // Encrypt/decrypt must be performed in place
     int rv = -1;
-    if (out != in
-            || len < (EVP_GCM_TLS_EXPLICIT_IV_LEN + EVP_GCM_TLS_TAG_LEN))
+    if (out != in)
         return -1;
 
     //if we're missing the first part of the record, abort
-    if((offset > EVP_GCM_TLS_EXPLICIT_IV_LEN) && (f->partial_record_len < EVP_GCM_TLS_EXPLICIT_IV_LEN )){
+    if ((offset > EVP_GCM_TLS_EXPLICIT_IV_LEN) &&
+            (f->partial_record_len < EVP_GCM_TLS_EXPLICIT_IV_LEN ))
         return -1;
-    }
+
+    //if we do not yet have the entire explicit IV, there's nothing to decrypt
+    if (f->partial_record_len <= EVP_GCM_TLS_EXPLICIT_IV_LEN )
+        return 0;
+
     //set IV
     uint8_t *iv = smalloc(f->gcm_ctx_ivlen);
     memcpy(iv, f->gcm_ctx_iv, EVP_GCM_TLS_FIXED_IV_LEN);

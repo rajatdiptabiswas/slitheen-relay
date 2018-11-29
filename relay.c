@@ -937,16 +937,21 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
 
                 //partially decrypt record
                 n = partial_aes_gcm_tls_cipher(f, record_ptr, record_ptr, f->partial_record_len, 0, 0);
-                if(n <= 0){
+                if(n < 0){
                     //do something smarter here
-                    fprintf(stderr, "Decryption failed, forfeiting flow\n");
+                    printf("Decryption failed, forfeiting flow (len=%d)\n", f->partial_record_len);
                     if(f->partial_record_header_len > 0){
                         f->partial_record_header_len = 0;
                         free(f->partial_record_header);
                     }
                     free(record_ptr);
-			f->http_state = FORFEIT_REST;
+                    f->http_state = FORFEIT_REST;
                     return 0;//TODO: goto err to free record_ptr
+                } else if (n == 0) { //we don't have the entire iv yet
+                    memcpy(f->partial_record_dec, f->partial_record, f->partial_record_len);
+
+                    free(record_ptr);
+                    return 0;
                 }
 
             }
@@ -970,7 +975,7 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
             //now decrypt the record
             n = encrypt(f, record_ptr, record_ptr, remaining_record_len, 1,
                     record_hdr->type, 0, 0);
-            if(n < 0){
+            if(n <= 0){
                 //do something smarter here
                 printf("Decryption failed\n");
                 if(f->partial_record_header_len > 0){
@@ -1001,10 +1006,15 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
             DEBUG_MSG(DEBUG_DOWN, "Text:\n%s\n", record_ptr+EVP_GCM_TLS_EXPLICIT_IV_LEN);
         }
 
+        //partially encrypting data
         if(partial){
-            //partially encrypting data
 
             //first copy plaintext to flow struct
+
+            //if partial_offset <= EXPLICIT_IV_LEN, we've yet to copy the decrypted iv bytes
+            if (partial_offset <= EVP_GCM_TLS_EXPLICIT_IV_LEN)
+                memcpy(f->partial_record_dec, record_ptr, EVP_GCM_TLS_EXPLICIT_IV_LEN);
+
             if(n + EVP_GCM_TLS_EXPLICIT_IV_LEN >= partial_offset){
                 memcpy(f->partial_record_dec + partial_offset, record_ptr+partial_offset, n + EVP_GCM_TLS_EXPLICIT_IV_LEN - partial_offset);
             } //otherwise, this packet contains only part of the tag
