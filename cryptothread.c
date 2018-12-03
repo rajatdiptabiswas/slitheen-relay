@@ -37,8 +37,8 @@
 static pthread_mutex_t *crypto_locks;
 static long *lock_count;
 
-static void pthreads_thread_id(CRYPTO_THREADID *tid);
-static void pthreads_locking_callback(int mode, int type, const char *file, int line);
+void pthreads_thread_id(CRYPTO_THREADID *tid);
+void pthreads_locking_callback(int mode, int type, const char *file, int line);
 
 void init_crypto_locks(void){
 
@@ -70,7 +70,7 @@ void crypto_locks_cleanup(void){
 }
 
 /** If the mode is CRYPTO_LOCK, the lock indicated by type will be acquired, otherwise it will be released */
-static void pthreads_locking_callback(int mode, int type, const char *file, int line){
+void pthreads_locking_callback(int mode, int type, const char *file, int line){
 
     if(mode & CRYPTO_LOCK){
         pthread_mutex_lock(&(crypto_locks[type]));
@@ -80,7 +80,7 @@ static void pthreads_locking_callback(int mode, int type, const char *file, int 
     }
 }
 
-static void pthreads_thread_id(CRYPTO_THREADID *tid){
+void pthreads_thread_id(CRYPTO_THREADID *tid){
     CRYPTO_THREADID_set_numeric(tid, (unsigned long)pthread_self());
 }
 
