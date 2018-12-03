@@ -1033,7 +1033,7 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
             if (f->partial_record_len == f->partial_record_total_len){
 
                 //compute tag
-                partial_aes_gcm_tls_tag(f, record_ptr + n + EVP_GCM_TLS_EXPLICIT_IV_LEN, n);
+                partial_aes_gcm_tls_tag(f, record_ptr + n + EVP_GCM_TLS_EXPLICIT_IV_LEN);
                 DEBUG_MSG(DEBUG_DOWN, "finished partial tag: (%d bytes)\n", EVP_GCM_TLS_TAG_LEN);
                 DEBUG_BYTES(DEBUG_DOWN, (record_ptr + n + EVP_GCM_TLS_EXPLICIT_IV_LEN),
                         EVP_GCM_TLS_TAG_LEN);
@@ -1055,7 +1055,7 @@ static int process_downstream(flow *f, int32_t offset, struct packet_info *info)
             } else {
                 //compute tag just to clear out ctx
                 uint8_t *tag = smalloc(EVP_GCM_TLS_TAG_LEN);
-                partial_aes_gcm_tls_tag(f, tag, EVP_GCM_TLS_TAG_LEN);
+                partial_aes_gcm_tls_tag(f, tag);
                 free(tag);
 
             }

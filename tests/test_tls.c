@@ -1,7 +1,10 @@
-/** test_partial_aes.c
+/** test_tls.c
  *
  * Unit tests for testing the AES-GCM partial enc/dec
  * functionality for small/misorded packets
+ *
+ * Integration tests for testing the TLS state machine
+ *
  */
 
 #include <check.h>
@@ -14,15 +17,24 @@
 #include "../util.h"
 #include "test_util.h"
 
-static void initialize_ciphers(flow *f){
+/* Unit Tests */
+
+//cipher 0 = aes128, cipher 1 = aes256
+static void initialize_ciphers(flow *f, char *pathname, int cipher){
 
     uint8_t *data;
-
     f->hs_md_ctx = EVP_MD_CTX_create();
     const EVP_MD *md = EVP_sha256();
     EVP_DigestInit_ex(f->hs_md_ctx, md, NULL);
 
-    f->cipher = NULL;
+    if (cipher) {
+        f->cipher = EVP_aes_256_gcm();
+        f->message_digest = EVP_sha384();
+    } else {
+        f->cipher = EVP_aes_128_gcm();
+        f->message_digest = EVP_sha256();
+    }
+
     f->clnt_read_ctx = NULL;
     f->clnt_write_ctx = NULL;
     f->srvr_read_ctx = NULL;
@@ -39,16 +51,13 @@ static void initialize_ciphers(flow *f){
     f->write_seq[7] = 1;
 
     /* Cipher initialization */
-    if(!read_file("data/ctx.dat", &data)){
+    if(!read_file(pathname, &data)){
         ck_abort();
     }
 
     memcpy(f->master_secret, data, SSL3_MASTER_SECRET_SIZE);
     memcpy(f->client_random, data+SSL3_MASTER_SECRET_SIZE, SSL3_RANDOM_SIZE);
     memcpy(f->server_random, data+SSL3_MASTER_SECRET_SIZE+SSL3_RANDOM_SIZE, SSL3_RANDOM_SIZE);
-
-    f->cipher = EVP_aes_128_gcm();
-    f->message_digest = EVP_sha256();
 
     int result = init_ciphers(f);
     ck_assert_int_eq(result, 0);
@@ -64,7 +73,7 @@ START_TEST(full_decrypt){
 
     /* Flow initialization */
     f = smalloc(sizeof(flow));
-    initialize_ciphers(f);
+    initialize_ciphers(f, "data/ctx.dat", 0);
 
     /* Application Data */
     if(!(read_file_len("data/ciphertext.dat", &data, &len))){
@@ -87,7 +96,7 @@ START_TEST(full_encrypt){
 
     /* Flow initialization */
     f = smalloc(sizeof(flow));
-    initialize_ciphers(f);
+    initialize_ciphers(f, "data/ctx.dat", 0);
 
     /* Application Data */
     if(!(read_file_len("data/plaintext.dat", &data, &len))){
@@ -111,7 +120,7 @@ START_TEST(partial_decrypt){
 
     /* Flow initialization */
     f = smalloc(sizeof(flow));
-    initialize_ciphers(f);
+    initialize_ciphers(f, "data/ctx.dat", 0);
 
     /* Application Data */
     if(!(read_file_len("data/ciphertext.dat", &data, &len))){
@@ -173,7 +182,7 @@ START_TEST(partial_encrypt){
 
     /* Flow initialization */
     f = smalloc(sizeof(flow));
-    initialize_ciphers(f);
+    initialize_ciphers(f, "data/ctx.dat", 0);
 
     /* Application Data */
     if(!(read_file_len("data/plaintext.dat", &data, &len))){
@@ -201,10 +210,10 @@ START_TEST(partial_encrypt){
     ck_assert_int_eq(memcmp(data, data2, n/2), 0);
 
     //compute the tag
-    partial_aes_gcm_tls_tag(f, data2 + n + EVP_GCM_TLS_EXPLICIT_IV_LEN, n);
+    partial_aes_gcm_tls_tag(f, data2 + n + EVP_GCM_TLS_EXPLICIT_IV_LEN);
 
     //decrypt to check tag
-    initialize_ciphers(f);
+    initialize_ciphers(f, "data/ctx.dat", 0);
     n = encrypt(f, data2, data2, len, 1, 0x17, 0, 0);
     printf("%s\n", data2+EVP_GCM_TLS_EXPLICIT_IV_LEN);
     fflush(stdout);
@@ -226,7 +235,7 @@ START_TEST(future_encrypt){
 }
 END_TEST
 
-Suite *tag_suite(void) {
+Suite *unit_suite(void) {
     Suite *s;
     TCase *tc_core;
 
@@ -245,6 +254,82 @@ Suite *tag_suite(void) {
     return s;
 }
 
+/** Integration Tests 
+ *
+ * These are the following cases of packetization of TLS records:
+ *
+ * [] = TLS record, | = packet boundary, : = TLS record header bounder, ; = GCM IV ? = GCM tag
+ *
+ * 1) |[       ]|[     ]|  packet contains entire TLS record
+ * 2) |[    |  ][      ]|  packet contains partial TLS record, which finishes in next packet
+ * 3) |[    |      |   ]|  TLS record is split across > 2 packets
+ * 4) |[   ][   |      ]|  packet contains multiple TLS records
+ * 5) |[:|:      ]|        packet boundary splits TLS record header
+ * 6) |[;|;      ]|        packet boundary splits GCM IV
+ * 7) |[      ?|?]|        packet boundary splits GCM tag
+ *
+ */
+START_TEST(tls_state_machine){
+
+    uint8_t *data, *data2, *p;
+    int32_t len, len2;
+
+    flow *f;
+
+    int32_t offset = SSL3_MASTER_SECRET_SIZE + 2*SSL3_RANDOM_SIZE;
+
+    /* Flow initialization */
+    f = smalloc(sizeof(flow));
+    initialize_ciphers(f, "data/tls_1.dat", 0);
+
+    /* Read in TLS records */
+    if(!(read_file_len("data/tls_1.dat", &data, &len))){
+        ck_abort();
+    }
+
+    if(!(read_file_len("data/tls_2.dat", &data2, &len2))){
+        ck_abort();
+    }
+
+    p = data + offset;
+
+    //First 5 bytes are TLS records
+    struct record_header *record_hdr = (struct record_header *) p;
+
+    printf("Record Hdr: ");
+    for(int i=0; i<RECORD_HEADER_LEN; i++)
+        printf("%02x ", p[i]);
+    printf("\n");
+
+    p += RECORD_HEADER_LEN;
+
+    len = RECORD_LEN(record_hdr);
+
+    printf("len = %d", len);
+    printf("offset = %d\n", offset);
+
+    int n = encrypt(f, p, p, len, 1, 0x17, 0, 0);
+    ck_assert_int_eq(n, len - (EVP_GCM_TLS_TAG_LEN + EVP_GCM_TLS_EXPLICIT_IV_LEN));
+
+    free(data);
+    free(data2);
+}
+END_TEST
+
+Suite *integration_suite(void) {
+    Suite *s;
+    TCase *tc_core;
+
+    s = suite_create("TLS State Machine");
+
+    tc_core = tcase_create("Core");
+    tcase_add_test(tc_core, tls_state_machine);
+
+    suite_add_tcase(s, tc_core);
+    return s;
+}
+
+
 
 int main(void){
 
@@ -262,7 +347,16 @@ int main(void){
     init_crypto_locks();
 
 
-    s = tag_suite();
+    s = unit_suite();
+    sr = srunner_create(s);
+
+    srunner_set_fork_status(sr, CK_NOFORK);
+
+    srunner_run_all(sr, CK_NORMAL);
+    number_failed = srunner_ntests_failed(sr);
+    srunner_free(sr);
+
+    s = integration_suite();
     sr = srunner_create(s);
 
     srunner_set_fork_status(sr, CK_NOFORK);

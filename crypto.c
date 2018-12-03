@@ -1722,8 +1722,7 @@ err:
  *  tag: a pointer to where the tag will be placed
  *  len: the length of the original encryption
  */
-void partial_aes_gcm_tls_tag(flow *f, unsigned char *tag, size_t len){
-
+void partial_aes_gcm_tls_tag(flow *f, unsigned char *tag){
 
     CRYPTO_gcm128_tag(f->gcm_ctx_out, tag, EVP_GCM_TLS_TAG_LEN);
 
