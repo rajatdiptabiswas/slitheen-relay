@@ -373,7 +373,8 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
 
         uint8_t *encrypted_data = p;
         sl_hdr = (struct slitheen_header *) p;
-        sl_hdr->counter = ++(client_ptr->encryption_counter);
+        sl_hdr->seq = ++(client_ptr->encryption_counter);
+        sl_hdr->ack = 0x00;
         sl_hdr->stream_id = first_block->stream_id;
         sl_hdr->len = 0x0000;
         sl_hdr->garbage = 0x0000;
@@ -437,7 +438,7 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
         super_encrypt(client_ptr, encrypted_data, data_len + padding);
 
 
-        DEBUG_MSG(DEBUG_HTTP, "DWNSTRM: slitheen header: ");
+        DEBUG_MSG(DEBUG_HTTP, "DWNSTRM: slitheen header (useful): ");
         DEBUG_BYTES(DEBUG_HTTP, ((uint8_t *) sl_hdr), SLITHEEN_HEADER_LEN);
         DEBUG_MSG(DEBUG_HTTP, "Sending %d downstream bytes:", data_len);
         DEBUG_BYTES(DEBUG_HTTP, (((uint8_t *) sl_hdr) + SLITHEEN_HEADER_LEN), data_len+16+16);
@@ -446,14 +447,15 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
     if(remaining >= SLITHEEN_HEADER_LEN ){
 
         sl_hdr = (struct slitheen_header *) p;
-        sl_hdr->counter = 0x00;
+        sl_hdr->seq = 0x00;
+        sl_hdr->ack = 0x00;
         sl_hdr->stream_id = 0x00;
         remaining -= SLITHEEN_HEADER_LEN;
         sl_hdr->len = 0x00;
         sl_hdr->garbage = htons(remaining);
         sl_hdr->zeros = 0x0000;
 
-        DEBUG_MSG(DEBUG_HTTP, "DWNSTRM: slitheen header: ");
+        DEBUG_MSG(DEBUG_HTTP, "DWNSTRM: slitheen header (not useful): ");
         DEBUG_BYTES(DEBUG_HTTP, p, SLITHEEN_HEADER_LEN);
 
         //encrypt slitheen header

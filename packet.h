@@ -85,9 +85,10 @@ struct tls_header {
 #define CLIENT_HELLO_HEADER_LEN 6
 
 struct __attribute__((__packed__)) slitheen_header {
-    uint64_t counter;
     uint16_t stream_id; /* determines which stream the data is from */
     uint16_t len;
+    uint32_t seq;
+    uint32_t ack;
     uint16_t garbage;
     uint16_t zeros;
 };

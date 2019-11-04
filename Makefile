@@ -1,4 +1,4 @@
-CFLAGS=-g -ggdb -Wall -std=gnu99
+CFLAGS=-g -ggdb -Wall -std=gnu99 -DDEBUG_UP -DDEBUG_HTTP -DDEBUG_PROXY -DDEBUG_DOWN
 
 TARGETS=slitheen
 

@@ -38,7 +38,7 @@ typedef struct client_st {
     stream_table *streams;
     data_queue *downstream_queue;
     sem_t queue_lock;
-    uint16_t encryption_counter;
+    uint32_t encryption_counter;
     struct client_st *next;
     uint8_t *header_key;
     uint8_t *body_key;
