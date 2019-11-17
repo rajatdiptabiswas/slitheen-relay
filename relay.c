@@ -408,7 +408,7 @@ static int read_header(flow *f, struct packet_info *info){
         while(output_len > 0){
             struct sl_up_hdr *sl_hdr = (struct sl_up_hdr *) p;
             uint16_t stream_id = sl_hdr->stream_id;
-            uint16_t stream_len = ntohs(sl_hdr->len);
+            uint16_t stream_len = sl_hdr->len;
 
             p += sizeof(struct sl_up_hdr);
             output_len -= sizeof(struct sl_up_hdr);
