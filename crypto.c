@@ -658,10 +658,13 @@ int compute_master_secret(flow *f){
         DEBUG_MSG(DEBUG_CRYPTO, "tag key =");
         DEBUG_BYTES(DEBUG_CRYPTO, f->key, 16);
 
+        const EVP_MD *tmp = f->message_digest;
+        f->message_digest = EVP_sha256();
         tls_PRF(f, f->key, 16,
                 (uint8_t *) SLITHEEN_KEYGEN_CONST, SLITHEEN_KEYGEN_CONST_SIZE,
                 NULL, 0, NULL, 0, NULL, 0,
                 buf, bytes);
+        f->message_digest = tmp;
 
         DEBUG_MSG(DEBUG_CRYPTO, "Generated the client private key [len: %d]: ", bytes);
         DEBUG_BYTES(DEBUG_CRYPTO, buf, bytes);
@@ -719,8 +722,11 @@ int compute_master_secret(flow *f){
                 goto err;
             }
 
+            const EVP_MD *tmp = f->message_digest;
+            f->message_digest = EVP_sha256();
             tls_PRF(f, f->key, 16, (uint8_t *) SLITHEEN_KEYGEN_CONST, SLITHEEN_KEYGEN_CONST_SIZE,
                     NULL, 0, NULL, 0, NULL, 0, xkey->privkey, X25519_KEYLEN);
+            f->message_digest = tmp;
 
             DEBUG_MSG(DEBUG_CRYPTO, "Generated the X25519 client private key [len: %d]: ", X25519_KEYLEN);
             DEBUG_BYTES(DEBUG_CRYPTO, xkey->privkey, X25519_KEYLEN);
@@ -789,8 +795,11 @@ int compute_master_secret(flow *f){
                 goto err;
             }
 
+            const EVP_MD *tmp = f->message_digest;
+            f->message_digest = EVP_sha256();
             tls_PRF(f, f->key, 16, (uint8_t *) SLITHEEN_KEYGEN_CONST, SLITHEEN_KEYGEN_CONST_SIZE,
                     NULL, 0, NULL, 0, NULL, 0, buf, bytes);
+            f->message_digest = tmp;
 
             DEBUG_MSG(DEBUG_CRYPTO, "Generated the client private key [len: %d]: ", bytes);
             DEBUG_BYTES(DEBUG_CRYPTO, buf, bytes);
