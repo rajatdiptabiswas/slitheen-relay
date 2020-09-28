@@ -92,6 +92,7 @@ static int check_extensions(flow *f, uint8_t *hs, uint32_t len);
 static int verify_extensions(flow *f, uint8_t *hs, uint32_t len);
 static int save_session_id(flow *f, uint8_t *hs);
 static int save_session_ticket(flow *f, uint8_t *hs, uint32_t len);
+void remove_hs_queue(queue *list);
 
 
 /* Initialize the table of tagged flows */
@@ -576,10 +577,10 @@ int remove_flow(flow *f) {
     free(f->downstream_app_data);
 
     if(f->ds_hs_queue != NULL){
-        remove_queue(f->ds_hs_queue);
+        remove_hs_queue(f->ds_hs_queue);
     }
     if(f->us_hs_queue != NULL){
-        remove_queue(f->us_hs_queue);
+        remove_hs_queue(f->us_hs_queue);
     }
 
     //free partial record headers
@@ -640,6 +641,10 @@ int remove_flow(flow *f) {
 
     if(f->dh != NULL){
         DH_free(f->dh);
+    }
+
+    if (f->srvr_key != NULL) {
+        EVP_PKEY_free(f->srvr_key);
     }
 
     if(f->current_session != NULL && f->resume_session == 1){
@@ -1320,4 +1325,14 @@ int add_packet(flow *f, struct packet_info *info){
 
     return 0;
 
+}
+
+void remove_hs_queue(queue *list){
+    packet *pkt = dequeue(list);
+    while(pkt != NULL){
+        free(pkt->data);
+	free(pkt);
+        pkt = dequeue(list);
+    }
+    free(list);
 }
