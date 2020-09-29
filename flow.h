@@ -53,6 +53,7 @@ typedef struct packet_st{
 } packet;
 
 typedef struct packet_chain_st packet_chain;
+typedef struct packet_queue_st packet_queue;
 
 typedef struct queue_block_st{
     int32_t len;
@@ -123,8 +124,8 @@ typedef struct flow_st {
 
     packet_chain *ds_packet_chain;
     packet_chain *us_packet_chain;
-    queue *ds_hs_queue;
-    queue *us_hs_queue;
+    packet_queue *ds_hs_queue;
+    packet_queue *us_hs_queue;
     sem_t packet_chain_lock;
 
     queue_block *upstream_queue;

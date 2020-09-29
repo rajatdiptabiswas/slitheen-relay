@@ -95,12 +95,4 @@
 void *smalloc(size_t size);
 void *scalloc(size_t nmemb, size_t size);
 
-typedef struct queue_st queue;
-
-queue *init_queue();
-void enqueue(queue *list, void *data);
-void *dequeue(queue *list);
-void *peek(queue *list, int32_t n);
-void remove_queue(queue *list);
-
 #endif /* UTIL_H */

@@ -52,6 +52,16 @@ typedef struct packet_chain_st {
     uint32_t remaining_record_len;
 } packet_chain;
 
+typedef struct element_st {
+    packet *data;
+    struct element_st *next;
+} packet_element;
+
+typedef struct packet_queue_st {
+    packet_element *first;
+    packet_element *last;
+} packet_queue;
+
 typedef struct session_cache_st {
     session *first_session;
     uint32_t length;
@@ -92,7 +102,12 @@ static int check_extensions(flow *f, uint8_t *hs, uint32_t len);
 static int verify_extensions(flow *f, uint8_t *hs, uint32_t len);
 static int save_session_id(flow *f, uint8_t *hs);
 static int save_session_ticket(flow *f, uint8_t *hs, uint32_t len);
-void remove_hs_queue(queue *list);
+packet_queue *init_queue();
+void enqueue(packet_queue *list, packet *data);
+packet *dequeue(packet_queue *list);
+packet *peek(packet_queue *list, int32_t n);
+void remove_queue(packet_queue *list);
+
 
 
 /* Initialize the table of tagged flows */
@@ -577,10 +592,10 @@ int remove_flow(flow *f) {
     free(f->downstream_app_data);
 
     if(f->ds_hs_queue != NULL){
-        remove_hs_queue(f->ds_hs_queue);
+        remove_queue(f->ds_hs_queue);
     }
     if(f->us_hs_queue != NULL){
-        remove_hs_queue(f->us_hs_queue);
+        remove_queue(f->us_hs_queue);
     }
 
     //free partial record headers
@@ -1182,7 +1197,7 @@ int add_packet(flow *f, struct packet_info *info){
     new_packet->next = NULL;
     uint8_t incoming = (info->ip_hdr->src.s_addr == f->src_ip.s_addr) ? 0 : 1;
     packet_chain *chain = (incoming) ? f->ds_packet_chain : f->us_packet_chain;
-    queue *packet_queue = (incoming) ? f->ds_hs_queue : f->us_hs_queue;
+    packet_queue *packet_queue = (incoming) ? f->ds_hs_queue : f->us_hs_queue;
 
     if(new_packet->seq_num < chain->expected_seq_num){
         //see if this packet contains any data we are missing
@@ -1327,12 +1342,101 @@ int add_packet(flow *f, struct packet_info *info){
 
 }
 
-void remove_hs_queue(queue *list){
-    packet *pkt = dequeue(list);
-    while(pkt != NULL){
-        free(pkt->data);
-	free(pkt);
-        pkt = dequeue(list);
+/**
+ * Initializes a packet queue structure
+ */
+
+packet_queue *init_queue(){
+    packet_queue *new_queue = smalloc(sizeof(packet_queue));
+
+    new_queue->first = NULL;
+    new_queue->last = NULL;
+
+    return new_queue;
+}
+
+/**
+ * Function to append a packet to the end of a list
+ */
+void enqueue(packet_queue *list, packet *data){
+    //Do not allow appending NULL data
+    if(data == NULL){
+        return;
     }
+    packet_element *new_elem = smalloc(sizeof(packet_element));
+    new_elem->data = data;
+    new_elem->next = NULL;
+
+    if(list->first == NULL){
+        list->first = new_elem;
+        list->last = new_elem;
+    } else {
+        list->last->next = new_elem;
+        list->last = new_elem;
+    }
+
+}
+
+/**
+ * Removes and returns the first packet from the front of the list. Returns NULL
+ * if list is empty
+ */
+packet *dequeue(packet_queue *list){
+
+    if(list->first == NULL){
+        return NULL;
+    }
+
+    packet *data = list->first->data;
+    packet_element *target =list->first;
+
+    list->first = target->next;
+
+    free(target);
+
+    return data;
+}
+
+/**
+ * Returns the nth packet of the queue (as provided)
+ *
+ * An input of -1 peeks at last packet
+ *
+ * Returns packet on success, NULL on failure
+ */
+
+packet *peek(packet_queue *list, int32_t n){
+
+    int32_t i;
+    packet_element *target = list->first;
+
+    if(n == -1){
+        target = list->last;
+    }
+
+    for(i=0; (i< n) && (target == NULL); i++){
+        target = target->next;
+    }
+
+    if(target == NULL){
+        return NULL;
+    } else {
+        return target->data;
+    }
+
+}
+
+/**
+ * Removes (frees the data in) all packets from the list and then frees the list itself
+ */
+void remove_queue(packet_queue *list){
+
+    packet *packet = dequeue(list);
+    while(packet != NULL){
+        free(packet->data);
+        free(packet);
+        packet = dequeue(list);
+    }
+
     free(list);
 }
