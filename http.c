@@ -32,6 +32,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include <time.h> // For OUS bandwidth logging
 #include <openssl/rand.h>
 
 #include "http.h"
@@ -86,6 +87,7 @@ int32_t parse_http(flow *f, uint8_t *ptr, uint32_t length){
                     }
 
                     if(f->content_type == IMAGE){
+                        DEBUG_MSG(DEBUG_HTTP, "BLARGH");
                         fill_with_downstream(f, p, remaining_length);
 
                         DEBUG_MSG(DEBUG_HTTP, "Replaced leaf with:\n");
@@ -346,6 +348,14 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
     uint8_t *p = data;
     int32_t remaining = length;
     struct slitheen_header *sl_hdr;
+
+    // Log the remaining bytes of data for OUS bandwidth measurement
+     // time_t now; 
+    // FILE *fp = fopen("data/ous_bandwidth.csv", "a");
+    DEBUG_MSG(DEBUG_OUS_BANDWIDTH, remaining);
+
+    //fclose(fp);
+    // *************************************************************
 
     data_queue *downstream_queue = f->downstream_queue;
     client *client_ptr = f->client_ptr;
