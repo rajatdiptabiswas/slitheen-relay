@@ -1,6 +1,6 @@
 /** test_webm.c
  *
- * Unit tests for the relay station webm parser
+ * Integration tests for the relay station webm parser
  */
 
 #include <check.h>
@@ -96,7 +96,7 @@ START_TEST(webm_parser) {
     //Now parse segment header
     parse_webm(f, p, 16);
 
-    //ck_assert_int_eq(f->webmstate, MID_ELEMENT);
+    ck_assert_int_eq(f->webmstate, MID_ELEMENT);
 
     p+= 16;
     file_len -= 16;
@@ -113,18 +113,23 @@ START_TEST(webm_parser) {
     ck_assert_int_eq(p[2], 0xb6);
     ck_assert_int_eq(p[3], 0x75);
 
-    //Parse into media element
-    //parse_webm(f, p, 8);
+    parse_webm(f, p, 18);
+    ck_assert_int_eq(f->webmstate, MID_ELEMENT);
+    ck_assert_int_eq(f->remaining_element, 56681);
 
-    //ck_assert_int_eq(f->webmstate, MEDIA);
+    p += 10;
+    file_len -= 10;
 
-    //parse to end of file
-    //p += 8;
-    //file_len -= 8;
+    //Detect simple block
+    ck_assert_int_eq(p[0], 0xa3);
+
+    p += 8;
+    file_len -= 8;
 
     parse_webm(f, p, file_len);
 
     free(data);
+    free(f);
 
 }
 END_TEST
