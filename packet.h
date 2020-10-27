@@ -126,6 +126,7 @@ struct packet_info {
 struct inject_args {
     uint8_t *mac_addr;
     pcap_t *write_dev;
+    pcap_dumper_t *pdumper_dev;
 };
 
 void extract_packet_headers(uint8_t *packet, struct packet_info *info);

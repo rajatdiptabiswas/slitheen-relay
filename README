@@ -8,5 +8,5 @@ cd keygen && make && ./genkeys
 To run:
 ./slitheen [interface to client] [interface to world]
 
-To read from file for tests,
-./slitheen [interface to client] -test [test_packets.pcap]
+To read packets from file for test,
+./slitheen -test [pcap readfile] [pcap writefile]

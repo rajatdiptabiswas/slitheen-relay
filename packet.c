@@ -111,6 +111,13 @@ struct packet_info *copy_packet_info(struct packet_info *src_info){
  */
 void inject_packet(struct inject_args *iargs, const struct pcap_pkthdr *header, uint8_t *packet){
     pcap_t *handle = iargs->write_dev;
+    pcap_dumper_t *pdumper = iargs->pdumper_dev;
+    if (pdumper != NULL) {
+        // dump packets to writefile for test
+        pcap_dump((u_char *) pdumper, header, packet);
+        free(packet);
+        return;
+    }
 
     //write back out to the MAC ADDR it came in on
     //memmove(packet, packet+ETHER_ADDR_LEN, ETHER_ADDR_LEN);

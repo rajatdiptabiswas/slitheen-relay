@@ -61,7 +61,7 @@ void retransmit(flow *f, struct packet_info *info, uint32_t data_to_fill);
 
 void usage(void){
     printf("Usage: slitheen [internal network interface] [NAT interface]\n");
-    printf("For tests, slitheen [internal network interface] -test [pcap filename]\n");
+    printf("For tests, slitheen -test [pcap readfile] [pcap writefile]\n");
 }
 
 int main(int argc, char *argv[]){
@@ -88,12 +88,12 @@ int main(int argc, char *argv[]){
     }
     init_crypto_locks();
 
-    if (strcmp(dev2, "-test") == 0) {
+    if (strcmp(dev1, "-test") == 0) {
         if (argc != 4) {
             usage();
             return(2);
         }
-        sniff_packets_from_file(dev1, argv[3]);
+        sniff_packets_from_file(dev2, argv[3]);
         return 0;
     }
 
@@ -117,34 +117,30 @@ int main(int argc, char *argv[]){
     return(0);
 }
 
-void *sniff_packets_from_file(char* writedev, char *filename){
+void *sniff_packets_from_file(char* readfile, char *writefile){
     pcap_t *rd_handle;
     pcap_t *wr_handle;
     char rd_errbuf[BUFSIZ];
     char wr_errbuf[BUFSIZ];
-    uint8_t mac[ETHER_ADDR_LEN];
-
-    //Find MAC address of each interface
-    struct ifreq ifr;
-    int s = socket(AF_INET, SOCK_DGRAM, 0);
-    strcpy(ifr.ifr_name, writedev);
-    ioctl(s, SIOCGIFHWADDR, &ifr);
-    memcpy(mac, ifr.ifr_hwaddr.sa_data, ETHER_ADDR_LEN);
-    close(s);
     
-    rd_handle = pcap_open_offline(filename, rd_errbuf);
+    rd_handle = pcap_open_offline(readfile, rd_errbuf);
     if (rd_handle == NULL){
-        fprintf(stderr, "Couldn't create device %s: %s\n", filename, rd_errbuf);
+        fprintf(stderr, "Couldn't open readfile %s: %s\n", readfile, rd_errbuf);
     }
 
-    wr_handle = pcap_open_live(writedev, BUFSIZ, 0, 0, wr_errbuf);
+    wr_handle = pcap_open_dead(DLT_EN10MB, BUFSIZ);
     if (wr_handle == NULL){
-        fprintf(stderr, "Couldn't open device %s: %s\n", writedev, wr_errbuf);
+        fprintf(stderr, "Couldn't create fake pcap\n");
+    }
+    pcap_dumper_t* pdumper = pcap_dump_open(wr_handle, writefile);
+    if (pdumper == NULL) {
+        fprintf(stderr, "Couldn't open writefile %s\n", writefile);
     }
 
     struct inject_args iargs;
-    iargs.mac_addr = mac;
-    iargs.write_dev = wr_handle;
+    iargs.mac_addr = NULL;
+    iargs.write_dev = NULL;
+    iargs.pdumper_dev = pdumper;
 
     int total_packets = 0;
     int total_bytes = 0;
@@ -156,7 +152,7 @@ void *sniff_packets_from_file(char* writedev, char *filename){
             // success, proccess packet
             total_packets++;
             total_bytes += header->caplen;
-            got_packet(&iargs, header, content);
+            got_packet((uint8_t *) &iargs, header, content);
         } else if(ret == 0) {
             printf("Timeout\n");
         } else if(ret == -1) {
@@ -170,6 +166,8 @@ void *sniff_packets_from_file(char* writedev, char *filename){
     printf("Read: %d, byte: %d bytes\n", total_packets, total_bytes);
 
     pcap_close(rd_handle);
+    pcap_dump_flush(pdumper);
+    pcap_dump_close(pdumper);
 }
 
 void *sniff_packets(void *args){
@@ -248,6 +246,7 @@ void *sniff_packets(void *args){
     struct inject_args iargs;
     iargs.mac_addr = mac;
     iargs.write_dev = wr_handle;
+    iargs.pdumper_dev = NULL;
 
 
     /*callback function*/
