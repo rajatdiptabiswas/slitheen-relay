@@ -50,6 +50,7 @@ struct sniff_args {
 };
 
 void got_packet(uint8_t *args, const struct pcap_pkthdr *header, const uint8_t *packet);
+void *sniff_packets_from_file(char* writedev, char *filename);
 void *sniff_packets(void *);
 void process_packet(struct inject_args *iargs, const struct pcap_pkthdr *header, uint8_t *packet);
 struct packet_info *copy_packet_info(struct packet_info *src_info);
@@ -60,6 +61,7 @@ void retransmit(flow *f, struct packet_info *info, uint32_t data_to_fill);
 
 void usage(void){
     printf("Usage: slitheen [internal network interface] [NAT interface]\n");
+    printf("For tests, slitheen [internal network interface] -test [pcap filename]\n");
 }
 
 int main(int argc, char *argv[]){
@@ -71,7 +73,7 @@ int main(int argc, char *argv[]){
     struct sniff_args outbound;
     struct sniff_args inbound;
 
-    if (argc != 3) { 
+    if (argc < 3) { 
         usage();
         return(2);
     }
@@ -85,6 +87,15 @@ int main(int argc, char *argv[]){
         exit(1);
     }
     init_crypto_locks();
+
+    if (strcmp(dev2, "-test") == 0) {
+        if (argc != 4) {
+            usage();
+            return(2);
+        }
+        sniff_packets_from_file(dev1, argv[3]);
+        return 0;
+    }
 
     /* Create threads */
     outbound.readdev = dev1;
@@ -104,6 +115,61 @@ int main(int argc, char *argv[]){
     crypto_locks_cleanup();
 
     return(0);
+}
+
+void *sniff_packets_from_file(char* writedev, char *filename){
+    pcap_t *rd_handle;
+    pcap_t *wr_handle;
+    char rd_errbuf[BUFSIZ];
+    char wr_errbuf[BUFSIZ];
+    uint8_t mac[ETHER_ADDR_LEN];
+
+    //Find MAC address of each interface
+    struct ifreq ifr;
+    int s = socket(AF_INET, SOCK_DGRAM, 0);
+    strcpy(ifr.ifr_name, writedev);
+    ioctl(s, SIOCGIFHWADDR, &ifr);
+    memcpy(mac, ifr.ifr_hwaddr.sa_data, ETHER_ADDR_LEN);
+    close(s);
+    
+    rd_handle = pcap_open_offline(filename, rd_errbuf);
+    if (rd_handle == NULL){
+        fprintf(stderr, "Couldn't create device %s: %s\n", filename, rd_errbuf);
+    }
+
+    wr_handle = pcap_open_live(writedev, BUFSIZ, 0, 0, wr_errbuf);
+    if (wr_handle == NULL){
+        fprintf(stderr, "Couldn't open device %s: %s\n", writedev, wr_errbuf);
+    }
+
+    struct inject_args iargs;
+    iargs.mac_addr = mac;
+    iargs.write_dev = wr_handle;
+
+    int total_packets = 0;
+    int total_bytes = 0;
+    while(1) {
+        struct pcap_pkthdr *header = NULL;
+        const u_char *content = NULL;
+        int ret = pcap_next_ex(rd_handle, &header, &content);
+        if(ret == 1) {
+            // success, proccess packet
+            total_packets++;
+            total_bytes += header->caplen;
+            got_packet(&iargs, header, content);
+        } else if(ret == 0) {
+            printf("Timeout\n");
+        } else if(ret == -1) {
+            // fail
+            fprintf(stderr, "pcap_next_ex(): %s\n", pcap_geterr(rd_handle));
+        } else if(ret == -2) {
+            printf("No more packet from file\n");
+            break;
+        }
+    }
+    printf("Read: %d, byte: %d bytes\n", total_packets, total_bytes);
+
+    pcap_close(rd_handle);
 }
 
 void *sniff_packets(void *args){
