@@ -17,7 +17,7 @@ check_tagged: check_tagged.c test_util.o ../flow.c ../crypto.o ../relay.o ../cry
 check_handshake: check_handshake.c test_util.o ../flow.c ../crypto.o ../relay.o ../cryptothread.o ../ptwist168.o ../packet.o ../util.o ../webm.o ../mp4.o ../http.o $(INCLUDES)
 	gcc -g -ggdb -o $@ $^ -L/usr/local/lib -I/usr/local/include $(LINKS)
 
-test_tls: test_tls.c test_util.o ../flow.c ../crypto.o ../relay.o ../cryptothread.o ../ptwist168.o ../packet.o ../util.o ../webm.o ../mp4.o ../http.o $(INCLUDES)
+test_tls: test_tls.c test_util.o ../flow.c ../crypto.o ../cryptothread.o ../ptwist168.o ../packet.o ../util.o ../webm.o ../mp4.o ../http.o $(INCLUDES)
 	gcc -g -ggdb -o $@ $^ -L/usr/local/lib -I/usr/local/include $(LINKS)
 
 test_mp4: test_mp4.c test_util.o ../flow.o ../crypto.o ../relay.o ../cryptothread.o ../ptwist168.o ../packet.o ../util.o ../webm.o ../mp4.o ../http.o $(INCLUDES)

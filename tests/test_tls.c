@@ -15,6 +15,7 @@
 #include "../cryptothread.h"
 #include "../packet.h"
 #include "../util.h"
+#include "../relay.c"
 #include "test_util.h"
 
 /* Unit Tests */
@@ -269,50 +270,318 @@ Suite *unit_suite(void) {
  * 7) |[      ?|?]|        packet boundary splits GCM tag
  *
  */
+int read_packet(struct packet_info **info, uint8_t **data, char *pathname){
+
+    if(!(read_file(pathname, data))){
+        return 1;
+    }
+    int32_t offset = SSL3_MASTER_SECRET_SIZE + 2*SSL3_RANDOM_SIZE;
+
+    *info = smalloc(sizeof(struct packet_info));
+
+    extract_packet_headers(*data + offset, *info);
+
+    return 0;
+}
+
 START_TEST(tls_state_machine){
 
-    uint8_t *data, *data2, *p;
-    int32_t len, len2;
+    uint8_t *p, *data;
+    struct packet_info *info;
+    int32_t len;
+    struct record_header *record_hdr;
 
     flow *f;
-
-    int32_t offset = SSL3_MASTER_SECRET_SIZE + 2*SSL3_RANDOM_SIZE;
 
     /* Flow initialization */
     f = smalloc(sizeof(flow));
     initialize_ciphers(f, "data/tls_1.dat", 0);
-
-    /* Read in TLS records */
-    if(!(read_file_len("data/tls_1.dat", &data, &len))){
+    if (read_packet(&info, &data, "data/tls_1.dat")) {
         ck_abort();
     }
 
-    if(!(read_file_len("data/tls_2.dat", &data2, &len2))){
-        ck_abort();
-    }
+    p = info->app_data;
+    int remaining_packet_len = info->app_data_len;
 
-    p = data + offset;
-
-    //First 5 bytes are TLS records
-    struct record_header *record_hdr = (struct record_header *) p;
-
+    // TLS Record 1
     printf("Record Hdr: ");
     for(int i=0; i<RECORD_HEADER_LEN; i++)
         printf("%02x ", p[i]);
     printf("\n");
-
-    p += RECORD_HEADER_LEN;
-
+    record_hdr = (struct record_header*) p;
     len = RECORD_LEN(record_hdr);
-
-    printf("len = %d", len);
-    printf("offset = %d\n", offset);
-
+    p += RECORD_HEADER_LEN;
+    
+    // Decrypt full record and re-encrypt
     int n = encrypt(f, p, p, len, 1, 0x17, 0, 0);
     ck_assert_int_eq(n, len - (EVP_GCM_TLS_TAG_LEN + EVP_GCM_TLS_EXPLICIT_IV_LEN));
+    n = encrypt(f, p, p, n + EVP_GCM_TLS_EXPLICIT_IV_LEN, 1, 0x17, 1, 1);
+    ck_assert_int_eq(n, len);
+    p += len;
+    remaining_packet_len -= RECORD_HEADER_LEN + len;
 
+    // TLS Record 2
+    printf("Record Hdr: ");
+    for(int i=0; i<RECORD_HEADER_LEN; i++)
+        printf("%02x ", p[i]);
+    printf("\n");
+    record_hdr = (struct record_header*) p;
+    len = RECORD_LEN(record_hdr);
+    p += RECORD_HEADER_LEN;
+    
+    // Decrypt full record and re-encrypt
+    n = encrypt(f, p, p, len, 1, 0x17, 0, 0);
+    ck_assert_int_eq(n, len - (EVP_GCM_TLS_TAG_LEN + EVP_GCM_TLS_EXPLICIT_IV_LEN));
+    n = encrypt(f, p, p, n + EVP_GCM_TLS_EXPLICIT_IV_LEN, 1, 0x17, 1, 1);
+    ck_assert_int_eq(n, len);
+    p += len;
+    remaining_packet_len -= RECORD_HEADER_LEN + len;
+
+    // TLS Record 3
+    printf("Record Hdr: ");
+    for(int i=0; i<RECORD_HEADER_LEN; i++)
+        printf("%02x ", p[i]);
+    printf("\n");
+    record_hdr = (struct record_header*) p;
+    len = RECORD_LEN(record_hdr);
+    p += RECORD_HEADER_LEN;
+    remaining_packet_len -= RECORD_HEADER_LEN;
+    
+    f->partial_record_total_len = len;
+    f->partial_record_len = remaining_packet_len;
+    f->partial_record = smalloc(len);
+    memcpy(f->partial_record, p, f->partial_record_len);
+
+    free(info);
     free(data);
-    free(data2);
+
+    // Read remaining record in next packet
+    if (read_packet(&info, &data, "data/tls_2.dat")) {
+        ck_abort();
+    }
+    int remaining_record_len = f->partial_record_total_len - f->partial_record_len;
+    memcpy(f->partial_record + f->partial_record_len, info->app_data, remaining_record_len);
+    f->partial_record_len += remaining_record_len;
+    p = f->partial_record;
+    
+    // Decrypt and re-encrypt
+    n = encrypt(f, p, p, len, 1, 0x17, 0, 0);
+    ck_assert_int_eq(n, len - (EVP_GCM_TLS_TAG_LEN + EVP_GCM_TLS_EXPLICIT_IV_LEN));
+    n = encrypt(f, p, p, n + EVP_GCM_TLS_EXPLICIT_IV_LEN, 1, 0x17, 1, 1);
+    ck_assert_int_eq(n, len);
+
+    free(f->partial_record);
+    free(info);
+    free(data);
+    free(f);
+}
+END_TEST
+
+START_TEST(parse_tls_records_1){
+
+    uint8_t *p, *data;
+    struct packet_info *info;
+    int32_t len;
+
+    flow *f;
+
+    /* Flow initialization */
+    f = smalloc(sizeof(flow));
+    initialize_ciphers(f, "data/tls_1.dat", 0);
+    f->partial_record = NULL;
+    f->partial_record_header_len = 0;
+    f->partial_record_len = 0;
+    f->partial_record_total_len = 0;
+    f->http_state = PARSE_HEADER;
+
+    /* Read in TLS records */
+    if (read_packet(&info, &data, "data/tls_1.dat")) {
+        ck_abort();
+    }
+
+    int remaining_packet_len = info->app_data_len;
+    p = info->app_data;
+    struct record_header *record_hdr = (struct record_header*) p;
+    len = RECORD_LEN(record_hdr);
+    p += RECORD_HEADER_LEN;
+
+    // Process first TLS record entirely
+    info->app_data_len = RECORD_HEADER_LEN + len;
+    remaining_packet_len -= info->app_data_len;
+    process_downstream(f, 0, info);
+    ck_assert_int_eq(f->partial_record_header_len, 0);
+    ck_assert_int_eq(f->partial_record_len, 0);
+    ck_assert_int_eq(f->partial_record_total_len, 0);
+    info->app_data += info->app_data_len;
+
+    // Now split the next TLS record into > 2 packets
+    p += len;
+    record_hdr = (struct record_header*) p;
+    len = RECORD_LEN(record_hdr);
+    p += RECORD_HEADER_LEN;
+
+    info->app_data_len = 15;
+    remaining_packet_len -= info->app_data_len;
+    process_downstream(f, 0, info);
+    ck_assert_int_eq(f->partial_record_header_len, 0);
+    // Partial record len is 15 - RECORD_HEADER_LEN(5) = 10
+    ck_assert_int_eq(f->partial_record_len, 10);
+    ck_assert_ptr_ne(f->partial_record, NULL);
+    ck_assert_int_eq(f->partial_record_total_len, len);
+    info->app_data += info->app_data_len;
+
+    info->app_data_len = 5;
+    remaining_packet_len -= info->app_data_len;
+    process_downstream(f, 0, info);
+    ck_assert_int_eq(f->partial_record_header_len, 0);
+    ck_assert_int_eq(f->partial_record_len, 15);
+    info->app_data += info->app_data_len;
+
+    info->app_data_len = len - f->partial_record_len;
+    remaining_packet_len -= info->app_data_len;
+    process_downstream(f, 0, info);
+    ck_assert_int_eq(f->partial_record_header_len, 0);
+    ck_assert_int_eq(f->partial_record_len, 0);
+    ck_assert_int_eq(f->partial_record_total_len, 0);
+    info->app_data += info->app_data_len;
+
+    // Process partial TLS record
+    p += len;
+    record_hdr = (struct record_header*) p;
+    len = RECORD_LEN(record_hdr);
+    p += RECORD_HEADER_LEN;
+    int partial_offset = remaining_packet_len - RECORD_HEADER_LEN;
+
+    info->app_data_len = remaining_packet_len;
+    process_downstream(f, 0, info);
+    ck_assert_int_eq(f->partial_record_header_len, 0);
+    ck_assert_int_eq(f->partial_record_len, partial_offset);
+    ck_assert_int_eq(f->partial_record_total_len, len);
+
+    free(info);
+    free(data);
+
+    // Process remaining record in next packet
+    if (read_packet(&info, &data, "data/tls_2.dat")) {
+        ck_abort();
+    }
+
+    process_downstream(f, 0, info);
+    ck_assert_int_eq(f->partial_record_header_len, 0);
+    ck_assert_int_eq(f->partial_record_len, 0);
+    ck_assert_int_eq(f->partial_record_total_len, 0);
+
+    free(info);
+    free(data);
+    free(f);
+}
+END_TEST
+
+START_TEST(parse_tls_records_2){
+
+    uint8_t *p, *record_data, *data;
+    struct packet_info *info;
+    int32_t len, len2, len3;
+
+    flow *f;
+
+    /* Flow initialization */
+    f = smalloc(sizeof(flow));
+    initialize_ciphers(f, "data/tls_1.dat", 0);
+    f->partial_record = NULL;
+    f->partial_record_header_len = 0;
+    f->partial_record_len = 0;
+    f->partial_record_total_len = 0;
+    f->http_state = PARSE_HEADER;
+
+    /* Read in TLS records */
+    if (read_packet(&info, &data, "data/tls_1.dat")) {
+        ck_abort();
+    }
+
+    int remaining_packet_len = info->app_data_len;
+    p = info->app_data;
+    struct record_header *record_hdr = (struct record_header*) p;
+    len = RECORD_LEN(record_hdr);
+    p += RECORD_HEADER_LEN + len;
+    record_hdr = (struct record_header*) p;
+    len2 = RECORD_LEN(record_hdr);
+    // Save data for comparison later
+    record_data = smalloc(len2);
+    memcpy(record_data, p + RECORD_HEADER_LEN, len2);
+    p += RECORD_HEADER_LEN + len2;
+    record_hdr = (struct record_header*) p;
+    len3 = RECORD_LEN(record_hdr);
+    // Partial offset of third record
+    int partial_offset = remaining_packet_len - RECORD_HEADER_LEN * 3 - len - len2;
+
+    // Split at first record header
+    info->app_data_len = 3;
+    remaining_packet_len -= info->app_data_len;
+    process_downstream(f, 0, info);
+    ck_assert_int_eq(f->partial_record_header_len, 3);
+    ck_assert_ptr_ne(f->partial_record_header, NULL);
+    ck_assert_int_eq(f->partial_record_len, 0);
+    ck_assert_int_eq(f->partial_record_total_len, 0);
+    info->app_data += info->app_data_len;
+
+    // Process remaining record and split at next record GCM IV
+    info->app_data_len = len + 10;
+    remaining_packet_len -= info->app_data_len;
+    process_downstream(f, 0, info);
+    // Partial IV for next record
+    ck_assert_int_eq(f->partial_record_header_len, 0);
+    ck_assert_int_eq(f->partial_record_len, 3);
+    ck_assert_ptr_ne(f->partial_record, NULL);
+    ck_assert_int_eq(f->partial_record_total_len, len2);
+    ck_assert_int_eq(memcmp(record_data, f->partial_record_dec, 3), 0);
+    info->app_data += info->app_data_len;
+
+    // Split current record at GCM tag
+    info->app_data_len = 23;
+    remaining_packet_len -= info->app_data_len;
+    process_downstream(f, 0, info);
+    ck_assert_int_eq(f->partial_record_header_len, 0);
+    ck_assert_int_eq(f->partial_record_len, 26);
+    ck_assert_ptr_ne(f->partial_record, NULL);
+    ck_assert_int_eq(f->partial_record_total_len, len2);
+    ck_assert_int_ne(memcmp(record_data, f->partial_record_dec, 26), 0);
+    info->app_data += info->app_data_len;
+
+    // Finish record
+    info->app_data_len = 8;
+    remaining_packet_len -= info->app_data_len;
+    process_downstream(f, 0, info);
+    ck_assert_int_eq(f->partial_record_header_len, 0);
+    ck_assert_int_eq(f->partial_record_len, 0);
+    ck_assert_ptr_eq(f->partial_record, NULL);
+    ck_assert_ptr_eq(f->partial_record_dec, NULL);
+    ck_assert_int_eq(f->partial_record_total_len, 0);
+    ck_assert_int_ne(memcmp(record_data + 16, p - 16, EVP_GCM_TLS_TAG_LEN), 0);
+    info->app_data += info->app_data_len;
+
+    info->app_data_len = remaining_packet_len;
+    process_downstream(f, 0, info);
+    ck_assert_int_eq(f->partial_record_header_len, 0);
+    ck_assert_int_eq(f->partial_record_len, partial_offset);
+    ck_assert_int_eq(f->partial_record_total_len, len3);
+
+    free(info);
+    free(data);
+    free(record_data);
+
+    if (read_packet(&info, &data, "data/tls_2.dat")) {
+        ck_abort();
+    }
+
+    process_downstream(f, 0, info);
+    ck_assert_int_eq(f->partial_record_header_len, 0);
+    ck_assert_int_eq(f->partial_record_len, 0);
+    ck_assert_int_eq(f->partial_record_total_len, 0);
+
+    free(info);
+    free(data);
+    free(f);
 }
 END_TEST
 
@@ -324,6 +593,8 @@ Suite *integration_suite(void) {
 
     tc_core = tcase_create("Core");
     tcase_add_test(tc_core, tls_state_machine);
+    tcase_add_test(tc_core, parse_tls_records_1);
+    tcase_add_test(tc_core, parse_tls_records_2);
 
     suite_add_tcase(s, tc_core);
     return s;
