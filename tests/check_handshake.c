@@ -36,6 +36,7 @@ START_TEST(full_handshake_regular){
     ck_assert_ptr_ne(f, NULL);
 
     add_packet(f, info);
+    f->ref_ctr--;
 
     free(data);
 
@@ -49,13 +50,14 @@ START_TEST(full_handshake_regular){
     ck_assert_ptr_ne(f, NULL);
 
     add_packet(f, info);
+    f->ref_ctr--;
 
     //make sure it's not using the extended master extension
     ck_assert_int_eq(f->extended_master_secret, 0);
 
     free(data);
 
-    /* Read in Certificate messages */
+    /* Certificate, ServerKeyEx, ServerHelloDone */
     if(!read_file("data/frame_handshake_regular3.dat", &data)){
         ck_abort();
     }
@@ -65,9 +67,11 @@ START_TEST(full_handshake_regular){
     ck_assert_ptr_ne(f, NULL);
 
     add_packet(f, info);
+    f->ref_ctr--;
 
     free(data);
 
+    /* ClientKeyEx, CCS, Finished */
     if(!read_file("data/frame_handshake_regular4.dat", &data)){
         ck_abort();
     }
@@ -77,32 +81,7 @@ START_TEST(full_handshake_regular){
     ck_assert_ptr_ne(f, NULL);
 
     add_packet(f, info);
-
-    free(data);
-
-    /* ServerKeyEx, ServerHelloDone */
-    if(!read_file("data/frame_handshake_regular5.dat", &data)){
-        ck_abort();
-    }
-    extract_packet_headers(data, info);
-
-    f = check_flow(info);
-    ck_assert_ptr_ne(f, NULL);
-
-    add_packet(f, info);
-
-    free(data);
-
-    /* ClientKeyEx, CCS, Finished */
-    if(!read_file("data/frame_handshake_regular6.dat", &data)){
-        ck_abort();
-    }
-    extract_packet_headers(data, info);
-
-    f = check_flow(info);
-    ck_assert_ptr_ne(f, NULL);
-
-    add_packet(f, info);
+    f->ref_ctr--;
 
     //Verify Finished received
     ck_assert_int_eq(f->out_encrypted, 2);
@@ -110,7 +89,7 @@ START_TEST(full_handshake_regular){
     free(data);
 
     /* CCS, Finished (from the server) */
-    if(!read_file("data/frame_handshake_regular7.dat", &data)){
+    if(!read_file("data/frame_handshake_regular5.dat", &data)){
         ck_abort();
     }
     extract_packet_headers(data, info);
@@ -119,6 +98,7 @@ START_TEST(full_handshake_regular){
     ck_assert_ptr_ne(f, NULL);
     
     add_packet(f, info);
+    f->ref_ctr--;
 
     //Make sure both Finished messages were successfully received and decrypted
 
@@ -169,6 +149,7 @@ START_TEST(full_handshake_extended){
     ck_assert_ptr_ne(f, NULL);
 
     add_packet(f, info);
+    f->ref_ctr--;
 
     free(data);
 
@@ -182,13 +163,14 @@ START_TEST(full_handshake_extended){
     ck_assert_ptr_ne(f, NULL);
 
     add_packet(f, info);
+    f->ref_ctr--;
 
     //make sure it recognized the extended master extension
     ck_assert_int_eq(f->extended_master_secret, 1);
 
     free(data);
 
-    /* Read in Certificate messages */
+    /* Certificate, ServerKeyEx, ServerHelloDone */
     if(!read_file("data/frame_handshake_extended3.dat", &data)){
         ck_abort();
     }
@@ -198,9 +180,11 @@ START_TEST(full_handshake_extended){
     ck_assert_ptr_ne(f, NULL);
 
     add_packet(f, info);
+    f->ref_ctr--;
 
     free(data);
 
+    /* ClientKeyEx, CCS, Finished */
     if(!read_file("data/frame_handshake_extended4.dat", &data)){
         ck_abort();
     }
@@ -210,9 +194,14 @@ START_TEST(full_handshake_extended){
     ck_assert_ptr_ne(f, NULL);
 
     add_packet(f, info);
+    f->ref_ctr--;
+
+    //Verify Finished received
+    ck_assert_int_eq(f->out_encrypted, 2);
 
     free(data);
 
+    /* CCS, Finished (from the server) */
     if(!read_file("data/frame_handshake_extended5.dat", &data)){
         ck_abort();
     }
@@ -222,48 +211,7 @@ START_TEST(full_handshake_extended){
     ck_assert_ptr_ne(f, NULL);
 
     add_packet(f, info);
-
-    free(data);
-
-    /* ServerKeyEx, ServerHelloDone */
-    if(!read_file("data/frame_handshake_extended6.dat", &data)){
-        ck_abort();
-    }
-    extract_packet_headers(data, info);
-
-    f = check_flow(info);
-    ck_assert_ptr_ne(f, NULL);
-
-    add_packet(f, info);
-
-    free(data);
-
-    /* ClientKeyEx, CCS, Finished */
-    if(!read_file("data/frame_handshake_extended7.dat", &data)){
-        ck_abort();
-    }
-    extract_packet_headers(data, info);
-
-    f = check_flow(info);
-    ck_assert_ptr_ne(f, NULL);
-
-    add_packet(f, info);
-
-    //Verify Finished received
-    ck_assert_int_eq(f->out_encrypted, 2);
-
-    free(data);
-
-    /* CCS, Finished (from the server) */
-    if(!read_file("data/frame_handshake_extended8.dat", &data)){
-        ck_abort();
-    }
-    extract_packet_headers(data, info);
-
-    f = check_flow(info);
-    ck_assert_ptr_ne(f, NULL);
-
-    add_packet(f, info);
+    f->ref_ctr--;
 
     //Make sure both Finished messages were successfully received and decrypted
 
@@ -302,6 +250,7 @@ START_TEST(full_handshake_extended_resumed){
     ck_assert_ptr_ne(f, NULL);
 
     add_packet(f, info);
+    f->ref_ctr--;
 
     free(data);
 
@@ -315,7 +264,10 @@ START_TEST(full_handshake_extended_resumed){
     ck_assert_ptr_ne(f, NULL);
 
     add_packet(f, info);
+    f->ref_ctr--;
 
+    //make sure it recognized the extended master extension
+    ck_assert_int_eq(f->extended_master_secret, 1);
     //Verify Finished received
     ck_assert_int_eq(f->in_encrypted, 2);
 
@@ -331,6 +283,7 @@ START_TEST(full_handshake_extended_resumed){
     ck_assert_ptr_ne(f, NULL);
 
     add_packet(f, info);
+    f->ref_ctr--;
 
     //Make sure both Finished messages were successfully received and decrypted
 
