@@ -82,7 +82,9 @@ int32_t parse_http(flow *f, uint8_t *ptr, uint32_t length){
                 //check if content is replaceable
                 if(f->remaining_response_len > remaining_length){
                     if (f->content_type == WEBM) {
-                        parse_webm(f, p, remaining_length);
+                        if(parse_webm(f, p, remaining_length)){
+                            f->http_state = FORFEIT_REST;
+                        }
                     }
 
                     if(f->content_type == IMAGE){
@@ -98,7 +100,9 @@ int32_t parse_http(flow *f, uint8_t *ptr, uint32_t length){
                     remaining_length = 0;
                 } else {
                     if (f->content_type == WEBM) {
-                        parse_webm(f, p, f->remaining_response_len);
+                        if(parse_webm(f, p, f->remaining_response_len)){
+                            f->http_state = FORFEIT_REST;
+                        }
                     }
 
                     if(f->content_type == IMAGE){
@@ -142,7 +146,9 @@ int32_t parse_http(flow *f, uint8_t *ptr, uint32_t length){
 
                 if(f->remaining_response_len > remaining_length){
                     if (f->content_type == WEBM) {
-                        parse_webm(f, p, remaining_length);
+                        if(parse_webm(f, p, remaining_length)){
+                            f->http_state = FORFEIT_REST;
+                        }
                     }
 
                     if(f->content_type == IMAGE){
@@ -157,7 +163,9 @@ int32_t parse_http(flow *f, uint8_t *ptr, uint32_t length){
                     remaining_length = 0;
                 } else {
                     if (f->content_type == WEBM) {
-                        parse_webm(f, p, f->remaining_response_len);
+                        if(parse_webm(f, p, f->remaining_response_len)){
+                            f->http_state = FORFEIT_REST;
+                        }
                     }
 
                     if(f->content_type == IMAGE){
