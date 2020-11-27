@@ -349,10 +349,7 @@ int fill_with_downstream(flow *f, uint8_t *data, int32_t length){
     int32_t remaining = length;
     struct slitheen_header *sl_hdr;
 
-    // Log the remaining bytes of data for OUS bandwidth measurement
-     // time_t now; 
-    // FILE *fp = fopen("data/ous_bandwidth.csv", "a");
-    DEBUG_MSG(DEBUG_OUS_BANDWIDTH, remaining);
+    EXPERIMENT(EXP_OUS_BANDWIDTH, remaining);
 
     //fclose(fp);
     // *************************************************************

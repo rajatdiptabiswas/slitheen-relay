@@ -79,18 +79,17 @@
 #define DEBUG_HTTP 0
 #endif
 
-#ifdef DEBUG_OUS_BANDWIDTH
-#define DEBUG_OUS_BANDWIDTH 1
+#ifdef EXP_OUS_BANDWIDTH
+#define EXP_OUS_BANDWIDTH 1
 #else
-#define DEBUG_OUS_BANDWIDTH 0
+#define EXP_OUS_BANDWIDTH 0
 #endif
+
 
 /* Debugging macros */
 #define DEBUG_MSG(type, ...) \
     do { \
-        time_t now; \
-        time(&now) \
-        if(type) printf("%s : %d", ctime(&now),  __VA_ARGS__); \
+        printf(__VA_ARGS__); \
     } while(0)
 
 #define DEBUG_BYTES(type, ptr, len) \
@@ -101,14 +100,20 @@
         } \
     } while(0)
 
-#define TO_FILE(type, ...) \
+#define EXPERIMENT(type, ...) \
     do { \
-        time_t now; \
-        time(&now); \
-        FILE *fp; \
-        fp = fopen("relay.log", "a"); \
-        if(type) fprintf(f, "%s : %s\n", ctime(&now), __VA_ARGS__);\
-        fclose(f); \
+        if (type) { \
+            FILE *fp = fopen("experiment_5.log", "a"); \
+            if (!fp) { \
+                printf("NO EXPERIMENT FILE"); \
+                break; \
+            } \
+            fprintf(fp, "%lu : %d\n", (unsigned long)time(NULL), __VA_ARGS__); \
+            fclose(fp); \
+         } \
+         else { \
+             printf("WHY THE FUCK IS THIS MACRO NOT DEFINED"); \
+         } \
        } while(0)
 
 void *smalloc(size_t size);
