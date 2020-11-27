@@ -65,8 +65,6 @@ void usage(void){
 }
 
 int main(int argc, char *argv[]){
-    int32_t start = 1234;
-    EXPERIMENT(1, start);
     pthread_t t1, t2;
 
     char *dev1 = NULL; /* Device that leads to the internal network */

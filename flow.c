@@ -80,6 +80,9 @@ typedef struct flow_table_st {
 static flow_table *table;
 static session_cache *sessions;
 client_table *clients;
+#ifdef EXP_OUS_BANDWIDTH
+int exp_bytes;
+#endif
 
 sem_t flow_table_lock;
 
@@ -122,6 +125,10 @@ int init_tables(void) {
     clients = smalloc(sizeof(client_table));
     clients->first = NULL;
     printf("initialized downstream queue\n");
+
+#ifdef EXP_OUS_BANDWIDTH
+    exp_bytes = 0;
+#endif
 
     return 0;
 }

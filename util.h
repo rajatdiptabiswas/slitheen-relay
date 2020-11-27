@@ -81,6 +81,7 @@
 
 #ifdef EXP_OUS_BANDWIDTH
 #define EXP_OUS_BANDWIDTH 1
+extern int exp_bytes;
 #else
 #define EXP_OUS_BANDWIDTH 0
 #endif
@@ -89,7 +90,7 @@
 /* Debugging macros */
 #define DEBUG_MSG(type, ...) \
     do { \
-        printf(__VA_ARGS__); \
+        if(type) printf(__VA_ARGS__); \
     } while(0)
 
 #define DEBUG_BYTES(type, ptr, len) \
@@ -100,20 +101,13 @@
         } \
     } while(0)
 
-#define EXPERIMENT(type, ...) \
+#define EXPERIMENT(type, len) \
     do { \
-        if (type) { \
-            FILE *fp = fopen("experiment_5.log", "a"); \
-            if (!fp) { \
-                printf("NO EXPERIMENT FILE"); \
-                break; \
-            } \
-            fprintf(fp, "%lu : %d\n", (unsigned long)time(NULL), __VA_ARGS__); \
-            fclose(fp); \
-         } \
-         else { \
-             printf("WHY THE FUCK IS THIS MACRO NOT DEFINED"); \
-         } \
+        exp_bytes += len; \
+        if (exp_bytes > 10000) { \
+            fprintf(stderr, "%lu : %d\n", (unsigned long)time(NULL), exp_bytes); \
+            exp_bytes = 0; \
+        } \
        } while(0)
 
 void *smalloc(size_t size);

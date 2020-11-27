@@ -1,4 +1,4 @@
-CFLAGS=-g -ggdb -Wall -std=gnu99 -DDEBUG_UP -DDEBUG_HTTP -DDEBUG_DOWN -DEXP_OUS_BANDWIDTH=1
+CFLAGS=-g -ggdb -Wall -std=gnu99 -DEXP_OUS_BANDWIDTH=1
 
 TARGETS=slitheen
 
